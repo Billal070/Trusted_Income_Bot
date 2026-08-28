@@ -184,18 +184,21 @@ async def handle_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     message = update.message
 
-    if message.text:
-        content_type = "text"
-        content = message.text
-        await _relay_submission(user, content_type, content)
-    elif message.photo:
+    if message.photo:
+        # Photo may have caption (user text with photo) — handle before text check
         content_type = "photo"
         content = message.photo[-1].file_id
-        await _relay_submission(user, content_type, content)
+        user_caption = message.caption or None
+        await _relay_submission(user, content_type, content, user_caption)
     elif message.document:
         content_type = "document"
         content = message.document.file_id
-        await _relay_submission(user, content_type, content)
+        user_caption = message.caption or None
+        await _relay_submission(user, content_type, content, user_caption)
+    elif message.text:
+        content_type = "text"
+        content = message.text
+        await _relay_submission(user, content_type, content, None)
     else:
         await message.reply_text("\u26a0\ufe0f Unsupported type. Please send text, a photo, or a document.")
         return
@@ -203,22 +206,28 @@ async def handle_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text("\u2705 Your task has been submitted successfully!")
 
 
-async def _relay_submission(user, content_type: str, content: str):
-    db.add_submission(user.id, content_type, content)
+async def _relay_submission(user, content_type: str, content: str, user_caption: str | None = None):
+    db.add_submission(user.id, content_type, content, user_caption)
 
-    caption = f"\U0001f4e5 New Job Submission\nFrom: @{user.username} (ID: {user.id})"
+    header = f"\U0001f4e5 New Job Submission\nFrom: @{user.username} (ID: {user.id})"
     try:
         async with telegram.Bot(token=ADMIN_BOT_TOKEN) as admin_bot:
             if content_type == "photo":
-                await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=content, caption=caption)
+                full_caption = header
+                if user_caption:
+                    full_caption += f"\n\n{user_caption}"
+                await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=content, caption=full_caption)
             elif content_type == "document":
-                await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=content, caption=caption)
+                full_caption = header
+                if user_caption:
+                    full_caption += f"\n\n{user_caption}"
+                await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=content, caption=full_caption)
             else:
-                await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{caption}\n\n{content}")
+                await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{header}\n\n{content}")
     except telegram.error.Forbidden:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Relay submission failed: %s", e)
 
 
 # -- Balance ---------------------------------------------------

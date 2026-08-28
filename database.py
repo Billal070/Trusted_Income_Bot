@@ -61,6 +61,7 @@ def init_db():
                 user_id INTEGER,
                 content_type TEXT,
                 content TEXT,
+                caption TEXT,
                 status TEXT DEFAULT 'pending',
                 submitted_at TIMESTAMP
             );
@@ -79,6 +80,11 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_submissions_status
                 ON submissions(status);
         """)
+        # Migration: add caption column if upgrading from older DB
+        try:
+            conn.execute("ALTER TABLE submissions ADD COLUMN caption TEXT")
+        except Exception:
+            pass
 
 
 # -- User helpers ----------------------------------------------
@@ -274,11 +280,11 @@ def get_pool_stats() -> dict:
 
 # -- Submission helpers ----------------------------------------
 
-def add_submission(user_id: int, content_type: str, content: str) -> int:
+def add_submission(user_id: int, content_type: str, content: str, caption: str | None = None) -> int:
     with get_conn() as conn:
         cursor = conn.execute(
-            "INSERT INTO submissions (user_id, content_type, content, status, submitted_at) VALUES (?, ?, ?, 'pending', ?)",
-            (user_id, content_type, content, _now()),
+            "INSERT INTO submissions (user_id, content_type, content, caption, status, submitted_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+            (user_id, content_type, content, caption, _now()),
         )
         return cursor.lastrowid
 
