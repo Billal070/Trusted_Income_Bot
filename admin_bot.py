@@ -177,10 +177,18 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
     total = len(user_ids)
     sent = 0
     bot = _user_bot()
+    message = update.message
 
     for uid in user_ids:
         try:
-            await bot.copy_message(chat_id=uid, from_chat_id=update.effective_chat.id, message_id=update.message.message_id)
+            if message.text:
+                await bot.send_message(chat_id=uid, text=message.text)
+            elif message.photo:
+                await bot.send_photo(chat_id=uid, photo=message.photo[-1].file_id, caption=message.caption or "")
+            elif message.document:
+                await bot.send_document(chat_id=uid, document=message.document.file_id, caption=message.caption or "")
+            else:
+                continue
             sent += 1
         except telegram.error.Forbidden:
             continue
