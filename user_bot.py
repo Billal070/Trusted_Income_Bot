@@ -47,7 +47,7 @@ async def notify_user_credit_change(user_id: int, amount: int, action: str, new_
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
-        [KeyboardButton("\U0001f4f8 Get Pic"), KeyboardButton("\U0001f4dd Submit Job")],
+        [KeyboardButton("\U0001f4b3Get Nid"), KeyboardButton("\U0001f4dd Submit Job")],
         [KeyboardButton("\U0001f4b0 Balance")],
     ],
     resize_keyboard=True,
@@ -213,7 +213,7 @@ def build_user_bot() -> Application:
     app = Application.builder().token(USER_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4f8 Get Pic$"), get_pic))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3Get Nid$"), get_pic))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4dd Submit Job$"), submit_job))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b0 Balance$"), balance))
 
