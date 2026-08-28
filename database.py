@@ -182,12 +182,22 @@ def confirm_photo_delivery(user_id: int) -> int | None:
 
 
 def refund_photo_claim(photo_id: int):
-    """Undo a photo claim (e.g. send failed). Does NOT refund credit — credit was never deducted."""
+    """Undo a photo claim (e.g. send failed before deduct). Does NOT refund credit — credit was never deducted."""
     with get_conn() as conn:
         conn.execute(
             "UPDATE photos SET is_sent = 0, sent_to_user_id = NULL, sent_at = NULL WHERE id = ?",
             (photo_id,),
         )
+
+
+def refund_photo_and_credit(photo_id: int, user_id: int):
+    """Undo a photo claim after credit was already deducted (send failed after deduct)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE photos SET is_sent = 0, sent_to_user_id = NULL, sent_at = NULL WHERE id = ?",
+            (photo_id,),
+        )
+        conn.execute("UPDATE users SET credits = credits + 1 WHERE user_id = ?", (user_id,))
 
 
 def deduct_user_credit_for_pic(user_id: int):

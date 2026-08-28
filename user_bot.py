@@ -86,17 +86,26 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\U0001f614 No Nid's available right now. Please check back later.")
         return
 
-    # Show upload action so user sees activity during download (fixes perceived lag)
+    # Deduct 1 credit BEFORE sending so we can put balance in photo caption
+    new_balance = db.confirm_photo_delivery(user_id)
+    if new_balance is None:
+        db.refund_photo_claim(photo_id)
+        await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
+        return
+
+    caption = f"\u2705 Here's your photo! 1 credit deducted. Remaining balance: {new_balance}"
+
     try:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
     except Exception:
         pass
 
-    # Try direct file_id send first — most photos will be User-Bot-valid after migration
+    # Try direct file_id send with caption — photo + text in one message (no separate follow-up)
     try:
-        await update.message.reply_photo(photo=file_id)
+        await update.message.reply_photo(photo=file_id, caption=caption)
+        # success — photo already marked sent and credit deducted
+        return
     except telegram.error.BadRequest as e:
-        # Any BadRequest for file_id is treated as cross-bot / invalid id → fallback download+reupload
         logger.warning("Get Pic file_id failed for photo %s (%s), trying fallback: %s", photo_id, file_id[:20], e)
         try:
             async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
@@ -105,37 +114,24 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await tg_file.download_to_memory(bio)
                 bio.seek(0)
                 bio.name = "photo.jpg"
-                sent = await update.message.reply_photo(photo=bio)
-                # Cache User-Bot-valid file_id for next time (makes future sends instant)
+                sent = await update.message.reply_photo(photo=bio, caption=caption)
                 try:
                     if sent.photo:
                         new_fid = sent.photo[-1].file_id
                         db.update_photo_file_id(photo_id, new_fid)
                 except Exception:
                     pass
+                return
         except Exception as e2:
             logger.error("Get Pic fallback failed for photo %s: %s", photo_id, e2, exc_info=True)
-            db.refund_photo_claim(photo_id)
-            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again — admin should re-add the photo.")
+            db.refund_photo_and_credit(photo_id, user_id)
+            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again — admin should re-add the photo.")
             return
     except Exception as e:
         logger.error("Get Pic send failed for photo %s: %s", photo_id, e, exc_info=True)
-        db.refund_photo_claim(photo_id)
-        await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again.")
+        db.refund_photo_and_credit(photo_id, user_id)
+        await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again.")
         return
-
-    # Send succeeded — now deduct credit atomically
-    new_balance = db.confirm_photo_delivery(user_id)
-    if new_balance is None:
-        # Race: credit dropped to 0 between check and confirm — refund photo
-        logger.warning("Get Pic confirm failed (race) for user %s photo %s", user_id, photo_id)
-        db.refund_photo_claim(photo_id)
-        await update.message.reply_text("\u274c Insufficient credit (race). Photo was not charged. Please try again.")
-        return
-
-    await update.message.reply_text(
-        f"\u2705 Here's your photo! 1 credit deducted. Remaining balance: {new_balance}"
-    )
 
 
 # -- Submit Job ------------------------------------------------
