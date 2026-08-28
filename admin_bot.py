@@ -506,6 +506,31 @@ async def show_user_detail(query: CallbackQuery, uid: int, page: int):
 # For duplicate detection, we compute a SHA-256 hash of the photo bytes
 # and reject the insert if that hash already exists in the photos table.
 
+async def _convert_to_user_file_id(admin_file_id: str, photo_db_id: int):
+    """Background: make photo fast for User Bot by caching a User-Bot-valid file_id."""
+    try:
+        import io
+        async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
+            tg_file = await abot.get_file(admin_file_id)
+            bio = io.BytesIO()
+            await tg_file.download_to_memory(bio)
+            bio.seek(0)
+            bio.name = "photo.jpg"
+            async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+                # Send to ADMIN_CHAT_ID to obtain User-Bot file_id (then delete to avoid spam)
+                msg = await ubot.send_photo(chat_id=ADMIN_CHAT_ID, photo=bio)
+                if msg.photo:
+                    new_fid = msg.photo[-1].file_id
+                    db.update_photo_file_id(photo_db_id, new_fid)
+                    # try to delete temp message to keep chat clean
+                    try:
+                        await ubot.delete_message(chat_id=ADMIN_CHAT_ID, message_id=msg.message_id)
+                    except Exception:
+                        pass
+                    logger.info("Converted photo %s to User-Bot file_id", photo_db_id)
+    except Exception as e:
+        logger.warning("Background convert failed for photo %s: %s", photo_db_id, e)
+
 async def auto_add_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return
@@ -523,9 +548,15 @@ async def auto_add_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         file_hash = None
 
-    added = db.add_photo(photo.file_id, file_hash)
-    if added:
+    photo_db_id = db.add_photo(photo.file_id, file_hash)
+    if photo_db_id is not None:
         await update.message.reply_text("\u2705 Photo added to pool.")
+        # Convert in background so future Get Nid is instant (no per-user download lag)
+        try:
+            import asyncio
+            asyncio.create_task(_convert_to_user_file_id(photo.file_id, photo_db_id))
+        except Exception:
+            pass
     else:
         await update.message.reply_text("\u26a0\ufe0f Duplicate photo (same content already in pool). Skipped.")
 

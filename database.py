@@ -236,18 +236,23 @@ def get_credits(user_id: int) -> int:
 
 # -- Photo helpers ---------------------------------------------
 
-def add_photo(file_id: str, file_hash: str | None = None) -> bool:
-    """Add a photo to the pool. Returns True if added, False if duplicate hash."""
+def add_photo(file_id: str, file_hash: str | None = None) -> int | None:
+    """Add a photo to the pool. Returns new photo id if added, None if duplicate hash."""
     with get_conn() as conn:
         if file_hash:
             existing = conn.execute("SELECT id FROM photos WHERE file_hash = ?", (file_hash,)).fetchone()
             if existing:
-                return False
-        conn.execute(
+                return None
+        cur = conn.execute(
             "INSERT INTO photos (file_id, file_hash, is_sent, added_at) VALUES (?, ?, 0, ?)",
             (file_id, file_hash, _now()),
         )
-        return True
+        return cur.lastrowid
+
+
+def update_photo_file_id(photo_id: int, new_file_id: str):
+    with get_conn() as conn:
+        conn.execute("UPDATE photos SET file_id = ? WHERE id = ?", (new_file_id, photo_id))
 
 
 def get_pool_stats() -> dict:

@@ -86,31 +86,37 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\U0001f614 No Nid's available right now. Please check back later.")
         return
 
-    # Try direct file_id send first
+    # Show upload action so user sees activity during download (fixes perceived lag)
+    try:
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
+    except Exception:
+        pass
+
+    # Try direct file_id send first — most photos will be User-Bot-valid after migration
     try:
         await update.message.reply_photo(photo=file_id)
     except telegram.error.BadRequest as e:
-        err = str(e).lower()
-        # Cross-bot file_id → try download via Admin Bot and re-upload
-        if "wrong file identifier" in err or "wrong file id" in err or "file_id" in err or "wrong remote file id" in err:
-            logger.warning("Get Pic cross-bot file_id failed for photo %s, trying download+reupload: %s", photo_id, e)
-            try:
-                async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
-                    tg_file = await abot.get_file(file_id)
-                    bio = io.BytesIO()
-                    await tg_file.download_to_memory(bio)
-                    bio.seek(0)
-                    bio.name = "photo.jpg"
-                    await update.message.reply_photo(photo=bio)
-            except Exception as e2:
-                logger.error("Get Pic fallback failed for photo %s: %s", photo_id, e2, exc_info=True)
-                db.refund_photo_claim(photo_id)
-                await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again — admin should re-add the photo.")
-                return
-        else:
-            logger.error("Get Pic BadRequest for photo %s: %s", photo_id, e, exc_info=True)
+        # Any BadRequest for file_id is treated as cross-bot / invalid id → fallback download+reupload
+        logger.warning("Get Pic file_id failed for photo %s (%s), trying fallback: %s", photo_id, file_id[:20], e)
+        try:
+            async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
+                tg_file = await abot.get_file(file_id)
+                bio = io.BytesIO()
+                await tg_file.download_to_memory(bio)
+                bio.seek(0)
+                bio.name = "photo.jpg"
+                sent = await update.message.reply_photo(photo=bio)
+                # Cache User-Bot-valid file_id for next time (makes future sends instant)
+                try:
+                    if sent.photo:
+                        new_fid = sent.photo[-1].file_id
+                        db.update_photo_file_id(photo_id, new_fid)
+                except Exception:
+                    pass
+        except Exception as e2:
+            logger.error("Get Pic fallback failed for photo %s: %s", photo_id, e2, exc_info=True)
             db.refund_photo_claim(photo_id)
-            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again.")
+            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again — admin should re-add the photo.")
             return
     except Exception as e:
         logger.error("Get Pic send failed for photo %s: %s", photo_id, e, exc_info=True)
