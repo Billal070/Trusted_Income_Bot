@@ -83,7 +83,7 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     photo_id, file_id = db.claim_photo_for_user(user_id)
     if photo_id is None:
-        await update.message.reply_text("\U0001f614 No photos available right now. Please check back later.")
+        await update.message.reply_text("\U0001f614 No Nid's available right now. Please check back later.")
         return
 
     # Try direct file_id send first
