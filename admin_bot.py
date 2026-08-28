@@ -3,6 +3,7 @@ Admin Bot - manages users, credits, broadcasts, and photo pool.
 Only users listed in ADMIN_USER_IDS may use this bot.
 """
 
+import asyncio
 import hashlib
 import logging
 import telegram
@@ -531,6 +532,33 @@ async def _convert_to_user_file_id(admin_file_id: str, photo_db_id: int):
     except Exception as e:
         logger.warning("Background convert failed for photo %s: %s", photo_db_id, e)
 
+# --- Batched photo summary: aggregate many photos sent at once into one reply ---
+_batch = {}  # admin_id -> {chat_id, added, dup, timer_task}
+
+async def _flush_photo_batch(admin_id: int, bot):
+    await asyncio.sleep(3.0)
+    data = _batch.pop(admin_id, None)
+    if not data:
+        return
+    added = data["added"]
+    dup = data["dup"]
+    if added == 0 and dup == 0:
+        return
+    total = db.get_pool_stats()["available"]
+    parts = []
+    if added:
+        parts.append(f"{added} added")
+    if dup:
+        parts.append(f"{dup} duplicates skipped")
+    summary = ", ".join(parts) if parts else "0"
+    text = f"\u2705 Batch complete: {summary} \u2014 pool now {total} available."
+    if added:
+        text += f" (\u23f3 converting {added} for instant delivery...)"
+    try:
+        await bot.send_message(chat_id=data["chat_id"], text=text)
+    except Exception:
+        pass
+
 async def auto_add_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return
@@ -549,16 +577,29 @@ async def auto_add_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_hash = None
 
     photo_db_id = db.add_photo(photo.file_id, file_hash)
-    if photo_db_id is not None:
-        await update.message.reply_text("\u2705 Photo added to pool.")
-        # Convert in background so future Get Nid is instant (no per-user download lag)
+    admin_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    # init / update batch
+    if admin_id not in _batch:
+        _batch[admin_id] = {"chat_id": chat_id, "added": 0, "dup": 0, "timer": None}
+    # cancel previous flush timer
+    old_timer = _batch[admin_id].get("timer")
+    if old_timer and not old_timer.done():
+        old_timer.cancel()
         try:
-            import asyncio
+            await old_timer
+        except asyncio.CancelledError:
+            pass
+    if photo_db_id is not None:
+        _batch[admin_id]["added"] += 1
+        try:
             asyncio.create_task(_convert_to_user_file_id(photo.file_id, photo_db_id))
         except Exception:
             pass
     else:
-        await update.message.reply_text("\u26a0\ufe0f Duplicate photo (same content already in pool). Skipped.")
+        _batch[admin_id]["dup"] += 1
+    # schedule new flush 3s after last photo
+    _batch[admin_id]["timer"] = asyncio.create_task(_flush_photo_batch(admin_id, context.bot))
 
 
 async def addphoto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
