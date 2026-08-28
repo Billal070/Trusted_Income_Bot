@@ -178,30 +178,45 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
 
     user_ids = db.get_all_user_ids()
     total = len(user_ids)
+    if total == 0:
+        return await update.message.reply_text("\u26a0\ufe0f No users in database to broadcast to. Users must /start the User Bot first.")
+
     sent = 0
-    bot = _user_bot()
+    failed_details = []
     message = update.message
     logger.info("Broadcast started: %d users to send to", total)
 
-    for uid in user_ids:
-        try:
-            if message.text:
-                await bot.send_message(chat_id=uid, text=message.text)
-            elif message.photo:
-                await bot.send_photo(chat_id=uid, photo=message.photo[-1].file_id, caption=message.caption or "")
-            elif message.document:
-                await bot.send_document(chat_id=uid, document=message.document.file_id, caption=message.caption or "")
-            else:
-                continue
-            sent += 1
-        except telegram.error.Forbidden:
-            logger.warning("Broadcast: user %d has not started the User Bot or blocked it", uid)
-            continue
-        except Exception as e:
-            logger.error("Broadcast failed for user %d: %s", uid, e)
-            continue
+    async with telegram.Bot(token=USER_BOT_TOKEN) as bot:
+        for uid in user_ids:
+            try:
+                if message.text:
+                    await bot.send_message(chat_id=uid, text=message.text)
+                elif message.photo:
+                    await bot.send_photo(chat_id=uid, photo=message.photo[-1].file_id, caption=message.caption or "")
+                elif message.document:
+                    await bot.send_document(chat_id=uid, document=message.document.file_id, caption=message.caption or "")
+                elif message.caption:
+                    await bot.send_message(chat_id=uid, text=message.caption)
+                else:
+                    failed_details.append(f"{uid}: unsupported message type")
+                    continue
+                sent += 1
+            except telegram.error.Forbidden as e:
+                msg = f"{uid}: blocked / not started User Bot ({e})"
+                logger.warning("Broadcast: %s", msg)
+                failed_details.append(msg)
+            except Exception as e:
+                msg = f"{uid}: {type(e).__name__}: {e}"
+                logger.error("Broadcast failed for %s", msg, exc_info=True)
+                failed_details.append(msg)
 
-    await update.message.reply_text(f"\u2705 Broadcast sent to {sent}/{total} users.")
+    result = f"\u2705 Broadcast sent to {sent}/{total} users."
+    if failed_details:
+        result += "\n\nFailed:\n" + "\n".join(failed_details[:10])
+        if len(failed_details) > 10:
+            result += f"\n...and {len(failed_details)-10} more"
+        result += "\n\nTip: user must have pressed /start on the User Bot first, and not blocked it."
+    await update.message.reply_text(result)
 
 
 # -- Stats -----------------------------------------------------

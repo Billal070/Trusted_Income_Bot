@@ -26,14 +26,16 @@ def _admin_bot():
 
 async def notify_user_credit_change(user_id: int, amount: int, action: str, new_balance: int):
     """Send a credit-change notification to a user via the User Bot's own token."""
-    bot = telegram.Bot(token=USER_BOT_TOKEN)
     if action == "add":
         text = f"✅ {amount} credits has been added to your account by admin! New balance: {new_balance}"
     else:
         text = f"➖ {amount} credits have been deducted from your account. New balance: {new_balance}"
     try:
-        await bot.send_message(chat_id=user_id, text=text)
+        async with telegram.Bot(token=USER_BOT_TOKEN) as bot:
+            await bot.send_message(chat_id=user_id, text=text)
     except telegram.error.Forbidden:
+        pass
+    except Exception:
         pass
 
 
@@ -128,16 +130,17 @@ async def _relay_submission(user, content_type: str, content: str):
     db.add_submission(user.id, content_type, content)
 
     caption = f"\U0001f4e5 New Job Submission\nFrom: @{user.username} (ID: {user.id})"
-    admin_bot = _admin_bot()
-
     try:
-        if content_type == "photo":
-            await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=content, caption=caption)
-        elif content_type == "document":
-            await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=content, caption=caption)
-        else:
-            await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{caption}\n\n{content}")
+        async with telegram.Bot(token=ADMIN_BOT_TOKEN) as admin_bot:
+            if content_type == "photo":
+                await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=content, caption=caption)
+            elif content_type == "document":
+                await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=content, caption=caption)
+            else:
+                await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{caption}\n\n{content}")
     except telegram.error.Forbidden:
+        pass
+    except Exception:
         pass
 
 
