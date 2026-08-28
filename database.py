@@ -146,8 +146,53 @@ def deduct_credit(user_id: int, amount: int, admin_id: int) -> int:
         return row["credits"] if row else 0
 
 
+def claim_photo_for_user(user_id: int):
+    """Reserve one available photo atomically (marks is_sent=1). No credit deducted yet.
+    Returns (photo_id, file_id) or (None, None) if none available or race lost.
+    Caller must call confirm_photo_delivery() on success or refund_photo_claim() on failure.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, file_id FROM photos WHERE is_sent = 0 ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None, None
+        photo_id = row["id"]
+        file_id = row["file_id"]
+        cursor = conn.execute(
+            "UPDATE photos SET is_sent = 1, sent_to_user_id = ?, sent_at = ? WHERE id = ? AND is_sent = 0",
+            (user_id, _now(), photo_id),
+        )
+        if cursor.rowcount == 0:
+            return None, None
+        return photo_id, file_id
+
+
+def confirm_photo_delivery(user_id: int) -> int | None:
+    """Deduct 1 credit after successful photo send. Returns new_balance or None if insufficient (race)."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET credits = credits - 1 WHERE user_id = ? AND credits >= 1",
+            (user_id,),
+        )
+        if cursor.rowcount == 0:
+            return None
+        row = conn.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        return row["credits"] if row else 0
+
+
+def refund_photo_claim(photo_id: int):
+    """Undo a photo claim (e.g. send failed). Does NOT refund credit — credit was never deducted."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE photos SET is_sent = 0, sent_to_user_id = NULL, sent_at = NULL WHERE id = ?",
+            (photo_id,),
+        )
+
+
 def deduct_user_credit_for_pic(user_id: int):
-    """Deduct 1 credit and claim a photo atomically.
+    """Legacy: deduct 1 credit and claim a photo atomically.
+    Kept for backward compat — new code should use claim/confirm/refund.
     Returns (True, file_id, new_balance) or (False, None, None).
     """
     with get_conn() as conn:

@@ -2,6 +2,8 @@
 User Bot - the bot regular users interact with.
 """
 
+import io
+import logging
 import telegram
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
@@ -14,6 +16,8 @@ from telegram.ext import (
 
 import database as db
 from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID
+
+logger = logging.getLogger(__name__)
 
 # -- Cross-bot helper ------------------------------------------
 
@@ -62,6 +66,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -- Get Pic ---------------------------------------------------
+# Fix future Get Pic: claim photo first, send, THEN deduct.
+# If send fails, refund the claim (unmark is_sent) — no credit lost.
+# Cross-bot file_id (admin bot -> user bot) fails with BadRequest → fallback: download via Admin Bot and re-upload.
 
 async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -74,13 +81,52 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
         return
 
-    result = db.deduct_user_credit_for_pic(user_id)
-    if result[0] is False:
+    photo_id, file_id = db.claim_photo_for_user(user_id)
+    if photo_id is None:
         await update.message.reply_text("\U0001f614 No photos available right now. Please check back later.")
         return
 
-    _, file_id, new_balance = result
-    await update.message.reply_photo(photo=file_id)
+    # Try direct file_id send first
+    try:
+        await update.message.reply_photo(photo=file_id)
+    except telegram.error.BadRequest as e:
+        err = str(e).lower()
+        # Cross-bot file_id → try download via Admin Bot and re-upload
+        if "wrong file identifier" in err or "wrong file id" in err or "file_id" in err or "wrong remote file id" in err:
+            logger.warning("Get Pic cross-bot file_id failed for photo %s, trying download+reupload: %s", photo_id, e)
+            try:
+                async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
+                    tg_file = await abot.get_file(file_id)
+                    bio = io.BytesIO()
+                    await tg_file.download_to_memory(bio)
+                    bio.seek(0)
+                    bio.name = "photo.jpg"
+                    await update.message.reply_photo(photo=bio)
+            except Exception as e2:
+                logger.error("Get Pic fallback failed for photo %s: %s", photo_id, e2, exc_info=True)
+                db.refund_photo_claim(photo_id)
+                await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again — admin should re-add the photo.")
+                return
+        else:
+            logger.error("Get Pic BadRequest for photo %s: %s", photo_id, e, exc_info=True)
+            db.refund_photo_claim(photo_id)
+            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again.")
+            return
+    except Exception as e:
+        logger.error("Get Pic send failed for photo %s: %s", photo_id, e, exc_info=True)
+        db.refund_photo_claim(photo_id)
+        await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was NOT deducted. Please try again.")
+        return
+
+    # Send succeeded — now deduct credit atomically
+    new_balance = db.confirm_photo_delivery(user_id)
+    if new_balance is None:
+        # Race: credit dropped to 0 between check and confirm — refund photo
+        logger.warning("Get Pic confirm failed (race) for user %s photo %s", user_id, photo_id)
+        db.refund_photo_claim(photo_id)
+        await update.message.reply_text("\u274c Insufficient credit (race). Photo was not charged. Please try again.")
+        return
+
     await update.message.reply_text(
         f"\u2705 Here's your photo! 1 credit deducted. Remaining balance: {new_balance}"
     )
