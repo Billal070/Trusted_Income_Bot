@@ -140,8 +140,16 @@ async def submit_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     context.user_data["awaiting_submission"] = True
     await update.message.reply_text(
-        "\U0001f4dd Please send your task now.\n"
-        "You can send text, a photo, or a document \u2014 just send it as your next message."
+        "\U0001f4dd Please send your Job now.\n"
+        "Submit Job Like The Format Below \U0001f447\U0001f3fb\n"
+        "--------------------------------------------------------------\n"
+        "\U0001f587\ufe0fAccount Link:\n"
+        "\n"
+        "\n"
+        "\U0001f5102 Factor Code:\n"
+        "\n"
+        "\n"
+        "\u2709\ufe0fMail:"
     )
 
 
