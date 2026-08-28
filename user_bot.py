@@ -76,62 +76,83 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
 
-    credits = db.get_credits(user_id)
-    if credits < 1:
-        await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
+    # Prevent double-tap race: ignore if already processing
+    if context.user_data.get("getting_nid"):
+        await update.message.reply_text("\u23f3 Please wait — your previous request is processing...")
         return
-
-    photo_id, file_id = db.claim_photo_for_user(user_id)
-    if photo_id is None:
-        await update.message.reply_text("\U0001f614 No Nid's available right now. Please check back later.")
-        return
-
-    # Deduct 1 credit BEFORE sending so we can put balance in photo caption
-    new_balance = db.confirm_photo_delivery(user_id)
-    if new_balance is None:
-        db.refund_photo_claim(photo_id)
-        await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
-        return
-
-    caption = f"\u2705 Here's your photo! 1 credit deducted. Remaining balance: {new_balance}"
+    context.user_data["getting_nid"] = True
 
     try:
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-    except Exception:
-        pass
+        credits = db.get_credits(user_id)
+        if credits < 1:
+            await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
+            return
 
-    # Try direct file_id send with caption — photo + text in one message (no separate follow-up)
-    try:
-        await update.message.reply_photo(photo=file_id, caption=caption)
-        # success — photo already marked sent and credit deducted
-        return
-    except telegram.error.BadRequest as e:
-        logger.warning("Get Pic file_id failed for photo %s (%s), trying fallback: %s", photo_id, file_id[:20], e)
+        photo_id, file_id = db.claim_photo_for_user(user_id)
+        if photo_id is None:
+            await update.message.reply_text("\U0001f614 No Nid's available right now. Please check back later.")
+            return
+
+        # Deduct BEFORE sending so balance can be in caption
+        new_balance = db.confirm_photo_delivery(user_id)
+        if new_balance is None:
+            db.refund_photo_claim(photo_id)
+            await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
+            return
+
+        caption = f"\u2705 Here's your photo! 1 credit deducted. Remaining balance: {new_balance}"
+
         try:
-            async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
-                tg_file = await abot.get_file(file_id)
-                bio = io.BytesIO()
-                await tg_file.download_to_memory(bio)
-                bio.seek(0)
-                bio.name = "photo.jpg"
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
+        except Exception:
+            pass
+
+        # Try direct file_id first (fast path for already-converted photos)
+        try:
+            await update.message.reply_photo(photo=file_id, caption=caption)
+            return
+        except telegram.error.BadRequest as e:
+            logger.warning("Get Nid direct file_id failed photo %s: %s — fallback", photo_id, e)
+            # Fallback: download via whichever bot owns the file_id, then re-upload with caption
+            bio = None
+            for token in (ADMIN_BOT_TOKEN, USER_BOT_TOKEN):
+                try:
+                    async with telegram.Bot(token=token) as bot:
+                        tg_file = await bot.get_file(file_id)
+                        tmp = io.BytesIO()
+                        await tg_file.download_to_memory(tmp)
+                        tmp.seek(0)
+                        tmp.name = "photo.jpg"
+                        bio = tmp
+                        break
+                except Exception as fe:
+                    logger.warning("Fallback get_file with token %s... failed: %s", token[:10], fe)
+                    continue
+            if bio is None:
+                logger.error("Get Nid fallback get_file failed for photo %s", photo_id, exc_info=True)
+                db.refund_photo_and_credit(photo_id, user_id)
+                await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again — admin should re-add the photo.")
+                return
+            try:
                 sent = await update.message.reply_photo(photo=bio, caption=caption)
                 try:
                     if sent.photo:
-                        new_fid = sent.photo[-1].file_id
-                        db.update_photo_file_id(photo_id, new_fid)
+                        db.update_photo_file_id(photo_id, sent.photo[-1].file_id)
                 except Exception:
                     pass
                 return
-        except Exception as e2:
-            logger.error("Get Pic fallback failed for photo %s: %s", photo_id, e2, exc_info=True)
+            except Exception as e2:
+                logger.error("Get Nid fallback send failed photo %s: %s", photo_id, e2, exc_info=True)
+                db.refund_photo_and_credit(photo_id, user_id)
+                await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again.")
+                return
+        except Exception as e:
+            logger.error("Get Nid send failed photo %s: %s", photo_id, e, exc_info=True)
             db.refund_photo_and_credit(photo_id, user_id)
-            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again — admin should re-add the photo.")
+            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again.")
             return
-    except Exception as e:
-        logger.error("Get Pic send failed for photo %s: %s", photo_id, e, exc_info=True)
-        db.refund_photo_and_credit(photo_id, user_id)
-        await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again.")
-        return
+    finally:
+        context.user_data["getting_nid"] = False
 
 
 # -- Submit Job ------------------------------------------------
