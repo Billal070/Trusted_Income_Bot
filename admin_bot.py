@@ -4,7 +4,10 @@ Only users listed in ADMIN_USER_IDS may use this bot.
 """
 
 import hashlib
+import logging
 import telegram
+
+logger = logging.getLogger(__name__)
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
@@ -178,6 +181,7 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
     sent = 0
     bot = _user_bot()
     message = update.message
+    logger.info("Broadcast started: %d users to send to", total)
 
     for uid in user_ids:
         try:
@@ -191,8 +195,10 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
                 continue
             sent += 1
         except telegram.error.Forbidden:
+            logger.warning("Broadcast: user %d has not started the User Bot or blocked it", uid)
             continue
-        except Exception:
+        except Exception as e:
+            logger.error("Broadcast failed for user %d: %s", uid, e)
             continue
 
     await update.message.reply_text(f"\u2705 Broadcast sent to {sent}/{total} users.")
@@ -271,6 +277,7 @@ async def pending_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def catch_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = context.user_data.get("admin_state", "")
+    logger.info("catch_admin_input: state=%s, user=%d", state, update.effective_user.id)
     if state.startswith("awaiting_search"):
         await handle_search_input(update, context)
     elif state.startswith("awaiting_addcredit") or state.startswith("awaiting_deductcredit"):
