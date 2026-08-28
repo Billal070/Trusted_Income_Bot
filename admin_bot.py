@@ -45,7 +45,7 @@ def _user_bot():
 ADMIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("\U0001f50d Search User"), KeyboardButton("\U0001f4e2 Broadcast")],
-        [KeyboardButton("\U0001f4ca Stats")],
+        [KeyboardButton("\U0001f4ca Stats"), KeyboardButton("\U0001f465 Manage Users")],
     ],
     resize_keyboard=True,
 )
@@ -107,12 +107,83 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return await query.answer("\u26d4 Unauthorized.", show_alert=True)
 
-    await query.answer()
     data = query.data
+
+    # --- Manage Users callbacks ---
+    if data.startswith("mlist:"):
+        await query.answer()
+        try:
+            page = int(data.split(":")[1])
+        except Exception:
+            page = 0
+        return await manage_users_list(update, context, page=page, edit=True)
+    if data.startswith("mview:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s); page = int(page_s)
+        except Exception:
+            return
+        return await show_user_detail(query, uid, page)
+    if data.startswith("mban:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s); page = int(page_s)
+        except Exception:
+            return
+        user = db.get_user(uid)
+        if not user:
+            return await query.answer("\u274c User not found.", show_alert=True)
+        db.set_banned(uid, not user["is_banned"])
+        # refresh list page
+        return await manage_users_list(update, context, page=page, edit=True)
+    if data.startswith("mdetailban:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s); page = int(page_s)
+        except Exception:
+            return
+        user = db.get_user(uid)
+        if not user:
+            return await query.answer("\u274c User not found.", show_alert=True)
+        db.set_banned(uid, not user["is_banned"])
+        return await show_user_detail(query, uid, page)
+    if data == "mclose":
+        await query.answer()
+        try:
+            await query.delete_message()
+        except Exception:
+            await query.edit_message_text("\u2705 Closed.")
+        return
+    if data.startswith("madd:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s)
+        except Exception:
+            return
+        context.user_data["admin_state"] = f"awaiting_madd:{uid}:{page_s}"
+        return await query.edit_message_text(f"Enter amount to ADD to user {uid}:")
+    if data.startswith("mdeduct:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s)
+        except Exception:
+            return
+        context.user_data["admin_state"] = f"awaiting_mdeduct:{uid}:{page_s}"
+        return await query.edit_message_text(f"Enter amount to DEDUCT from user {uid}:")
+
+    # --- Existing Search-User callbacks ---
+    await query.answer()
     parts = data.split(":")
     action = parts[0]
-    uid = int(parts[1])
-
+    try:
+        uid = int(parts[1])
+    except Exception:
+        return
     if action == "addcredit":
         context.user_data["admin_state"] = f"awaiting_addcredit:{uid}"
         await query.edit_message_text(f"Enter amount to ADD to user {uid}:")
@@ -156,6 +227,76 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         from user_bot import notify_user_credit_change
         await notify_user_credit_change(uid, amount, "deduct", new_balance)
         await update.message.reply_text(f"\u2705 Deducted {amount} credits from user {uid}. New balance: {new_balance}")
+    elif action == "awaiting_madd":
+        # parts = ["awaiting_madd", uid, page]
+        try:
+            page = int(parts[2]) if len(parts) > 2 else 0
+        except Exception:
+            page = 0
+        new_balance = db.add_credit(uid, amount, admin_id)
+        from user_bot import notify_user_credit_change
+        await notify_user_credit_change(uid, amount, "add", new_balance)
+        await update.message.reply_text(f"\u2705 Added {amount} credits to user {uid}. New balance: {new_balance}")
+        # show updated detail view
+        u = db.get_user(uid)
+        if u:
+            sub_count = db.get_submission_count(uid)
+            summary = db.get_credit_summary(uid)
+            status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+            text = (
+                f"\U0001f464 User Details\n"
+                f"ID: {u['user_id']}\n"
+                f"Username: @{u['username'] or 'N/A'}\n"
+                f"Name: {u['first_name'] or 'N/A'}\n"
+                f"Balance: {u['credits']} credits\n"
+                f"Status: {status}\n"
+                f"\U0001f4dd Total Submissions: {sub_count}\n"
+                f"\u2795 Total Added: {summary['added']} credits\n"
+                f"\u2796 Total Deducted: {summary['deducted']} credits\n"
+                f"Joined: {u['joined_at'] or 'N/A'}"
+            )
+            ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:{page}"),
+                 InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:{page}")],
+                [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
+                [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
+            ])
+            await update.message.reply_text(text, reply_markup=keyboard)
+    elif action == "awaiting_mdeduct":
+        try:
+            page = int(parts[2]) if len(parts) > 2 else 0
+        except Exception:
+            page = 0
+        new_balance = db.deduct_credit(uid, amount, admin_id)
+        from user_bot import notify_user_credit_change
+        await notify_user_credit_change(uid, amount, "deduct", new_balance)
+        await update.message.reply_text(f"\u2705 Deducted {amount} credits from user {uid}. New balance: {new_balance}")
+        u = db.get_user(uid)
+        if u:
+            sub_count = db.get_submission_count(uid)
+            summary = db.get_credit_summary(uid)
+            status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+            text = (
+                f"\U0001f464 User Details\n"
+                f"ID: {u['user_id']}\n"
+                f"Username: @{u['username'] or 'N/A'}\n"
+                f"Name: {u['first_name'] or 'N/A'}\n"
+                f"Balance: {u['credits']} credits\n"
+                f"Status: {status}\n"
+                f"\U0001f4dd Total Submissions: {sub_count}\n"
+                f"\u2795 Total Added: {summary['added']} credits\n"
+                f"\u2796 Total Deducted: {summary['deducted']} credits\n"
+                f"Joined: {u['joined_at'] or 'N/A'}"
+            )
+            ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:{page}"),
+                 InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:{page}")],
+                [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
+                [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
+            ])
+            await update.message.reply_text(text, reply_markup=keyboard)
 
     context.user_data["admin_state"] = None
 
@@ -236,6 +377,130 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+# -- 👥 Manage Users (paginated) ---------------------------------
+
+USERS_PER_PAGE = 5
+
+def _manage_list_keyboard(page: int) -> InlineKeyboardMarkup | None:
+    total = db.count_users()
+    offset = page * USERS_PER_PAGE
+    users = db.get_users_paginated(limit=USERS_PER_PAGE, offset=offset)
+    if not users and page == 0:
+        return None
+    rows = []
+    for u in users:
+        uid = u["user_id"]
+        label = f"@{u['username']}" if u["username"] else f"ID:{uid}"
+        # truncate long usernames to keep button readable
+        if len(label) > 20:
+            label = label[:17] + "..."
+        ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
+        rows.append([
+            InlineKeyboardButton(label, callback_data=f"mview:{uid}:{page}"),
+            InlineKeyboardButton(ban_label, callback_data=f"mban:{uid}:{page}"),
+        ])
+    # pagination row
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("\u25c0 Prev", callback_data=f"mlist:{page-1}"))
+    if (page + 1) * USERS_PER_PAGE < total:
+        nav.append(InlineKeyboardButton("Next \u25b6", callback_data=f"mlist:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("\u274c Close", callback_data="mclose")])
+    # add page indicator as non-clickable by editing text outside, not button
+    return InlineKeyboardMarkup(rows)
+
+async def manage_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0, edit: bool = False):
+    if not _is_admin(update.effective_user.id):
+        return
+    total = db.count_users()
+    if total == 0:
+        text = "\U0001f465 No users yet."
+        if edit and update.callback_query:
+            await update.callback_query.edit_message_text(text)
+        else:
+            await update.message.reply_text(text)
+        return
+    keyboard = _manage_list_keyboard(page)
+    total_pages = (total + USERS_PER_PAGE - 1) // USERS_PER_PAGE
+    text = f"\U0001f465 Manage Users — page {page+1}/{total_pages} (total {total})\nTap username to view details, Ban to toggle."
+    if edit and update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(text, reply_markup=keyboard)
+        except telegram.error.BadRequest:
+            pass
+    else:
+        await update.message.reply_text(text, reply_markup=keyboard)
+
+async def manage_users_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update.effective_user.id):
+        return await update.message.reply_text("\u26d4 Unauthorized.")
+    await manage_users_list(update, context, page=0)
+
+def _user_detail_text(uid: int) -> tuple[str, InlineKeyboardMarkup]:
+    u = db.get_user(uid)
+    if not u:
+        return "\u274c User not found.", InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data="mlist:0")]])
+    sub_count = db.get_submission_count(uid)
+    summary = db.get_credit_summary(uid)
+    status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+    text = (
+        f"\U0001f464 User Details\n"
+        f"ID: {u['user_id']}\n"
+        f"Username: @{u['username'] or 'N/A'}\n"
+        f"Name: {u['first_name'] or 'N/A'}\n"
+        f"Balance: {u['credits']} credits\n"
+        f"Status: {status}\n"
+        f"\U0001f4dd Total Submissions: {sub_count}\n"
+        f"\u2795 Total Added: {summary['added']} credits\n"
+        f"\u2796 Total Deducted: {summary['deducted']} credits\n"
+        f"Joined: {u['joined_at'] or 'N/A'}"
+    )
+    ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
+    # we encode originating page in callback so Back returns there; default 0
+    # caller must build keyboard with correct page; this helper builds without page, so wrappers will override
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:0"),
+            InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:0"),
+        ],
+        [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:0")],
+        [InlineKeyboardButton("\u25c0 Back", callback_data="mlist:0")],
+    ])
+    return text, keyboard
+
+async def show_user_detail(query: CallbackQuery, uid: int, page: int):
+    u = db.get_user(uid)
+    if not u:
+        return await query.edit_message_text("\u274c User not found.")
+    sub_count = db.get_submission_count(uid)
+    summary = db.get_credit_summary(uid)
+    status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+    text = (
+        f"\U0001f464 User Details\n"
+        f"ID: {u['user_id']}\n"
+        f"Username: @{u['username'] or 'N/A'}\n"
+        f"Name: {u['first_name'] or 'N/A'}\n"
+        f"Balance: {u['credits']} credits\n"
+        f"Status: {status}\n"
+        f"\U0001f4dd Total Submissions: {sub_count}\n"
+        f"\u2795 Total Added: {summary['added']} credits\n"
+        f"\u2796 Total Deducted: {summary['deducted']} credits\n"
+        f"Joined: {u['joined_at'] or 'N/A'}"
+    )
+    ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:{page}"),
+            InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:{page}"),
+        ],
+        [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
+        [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
+    ])
+    await query.edit_message_text(text, reply_markup=keyboard)
+
+
 # -- Photo auto-add --------------------------------------------
 # Any photo sent to the Admin Bot is automatically added to the photo pool.
 # For duplicate detection, we compute a SHA-256 hash of the photo bytes
@@ -295,7 +560,7 @@ async def catch_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("catch_admin_input: state=%s, user=%d", state, update.effective_user.id)
     if state.startswith("awaiting_search"):
         await handle_search_input(update, context)
-    elif state.startswith("awaiting_addcredit") or state.startswith("awaiting_deductcredit"):
+    elif state.startswith("awaiting_addcredit") or state.startswith("awaiting_deductcredit") or state.startswith("awaiting_madd") or state.startswith("awaiting_mdeduct"):
         await handle_credit_input(update, context)
     elif state == "awaiting_broadcast":
         await handle_broadcast_input(update, context)
@@ -319,6 +584,7 @@ def build_admin_bot() -> Application:
     app.add_handler(MessageHandler(filters.Regex("^\U0001f50d Search User$"), search_user_prompt))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4e2 Broadcast$"), broadcast_prompt))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4ca Stats$"), stats))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f465 Manage Users$"), manage_users_button))
 
     app.add_handler(CallbackQueryHandler(callback_handler))
 

@@ -229,6 +229,39 @@ def get_pending_submissions() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+# -- Paginated users + per-user stats -------------------------
+
+USERS_PER_PAGE = 5
+
+def count_users() -> int:
+    with get_conn() as conn:
+        return conn.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"]
+
+
+def get_users_paginated(limit: int = 5, offset: int = 0) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM users ORDER BY joined_at DESC LIMIT ? OFFSET ?", (limit, offset)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_submission_count(user_id: int) -> int:
+    with get_conn() as conn:
+        return conn.execute("SELECT COUNT(*) as c FROM submissions WHERE user_id = ?", (user_id,)).fetchone()["c"]
+
+
+def get_credit_summary(user_id: int) -> dict:
+    with get_conn() as conn:
+        added = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) as s FROM credit_logs WHERE user_id = ? AND action='add'", (user_id,)
+        ).fetchone()["s"]
+        deducted = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) as s FROM credit_logs WHERE user_id = ? AND action='deduct'", (user_id,)
+        ).fetchone()["s"]
+        return {"added": added, "deducted": deducted}
+
+
 # -- Stats -----------------------------------------------------
 
 def get_stats() -> dict:
