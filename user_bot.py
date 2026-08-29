@@ -56,11 +56,24 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
 )
 
 
+def _clear_deposit_state(context: ContextTypes.DEFAULT_TYPE):
+    for k in ("deposit_method", "deposit_amount", "deposit_step"):
+        context.user_data.pop(k, None)
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # clear all pending states: deposit, submission, nid lock
+    _clear_deposit_state(context)
+    context.user_data.pop("awaiting_submission", None)
+    context.user_data.pop("getting_nid", None)
+    await update.message.reply_text("\u274c Cancelled. Use buttons to start again.", reply_markup=MAIN_KEYBOARD)
+
 # -- /start ----------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.register_user(user.id, user.username, user.first_name)
+    _clear_deposit_state(context)
+    context.user_data.pop("awaiting_submission", None)
     if db.is_banned(user.id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
@@ -73,6 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Cross-bot file_id (admin bot -> user bot) fails with BadRequest → fallback: download via Admin Bot and re-upload.
 
 async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _clear_deposit_state(context)
     user_id = update.effective_user.id
     if db.is_banned(user_id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
@@ -178,6 +192,7 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -- Submit Job ------------------------------------------------
 
 async def submit_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _clear_deposit_state(context)
     if db.is_banned(update.effective_user.id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
@@ -270,6 +285,7 @@ async def _relay_submission(user, content_type: str, content: str, user_caption:
 # -- Balance (Credits + BDT) ----------------------------------
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _clear_deposit_state(context)
     user_id = update.effective_user.id
     if db.is_banned(user_id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
@@ -277,7 +293,6 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = db.get_user(user_id)
     credits = u["credits"] if u else 0
     bdt = db.get_bdt_balance(user_id)
-    # 1 Credit = 1 BDT
     username = f"@{update.effective_user.username}" if update.effective_user.username else f"ID:{user_id}"
     await update.message.reply_text(
         f"\U0001f464 User: {username}\n"
@@ -289,9 +304,11 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -- Products / Support (placeholders) ------------------------
 
 async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _clear_deposit_state(context)
     await update.message.reply_text("\U0001f6cd\ufe0f Product store will be available soon!")
 
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _clear_deposit_state(context)
     await update.message.reply_text(f"\U0001f4de Support: {SUPPORT_LINK}\nContact admin for help.")
 
 # -- Deposit Flow (bKash / Nagad) ---------------------------
@@ -300,6 +317,8 @@ async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if db.is_banned(update.effective_user.id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
+    _clear_deposit_state(context)
+    context.user_data.pop("awaiting_submission", None)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001f338 bKash", callback_data="dep_method:bkash"),
          InlineKeyboardButton("\U0001f7e0 Nagad", callback_data="dep_method:nagad")],
@@ -366,25 +385,52 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             f"\u23f3 Your deposit request of {amount} BDT via {pretty} (TrxID: {trx}) has been submitted! Waiting for Admin verification."
         )
-        # Forward to Admin Bot
+        # Forward to Admin Bot — robust multi-admin, no Markdown parse errors
         try:
             ts = db.get_deposit(dep_id)["created_at"] if db.get_deposit(dep_id) else ""
             admin_text = (
-                f"\U0001f514 **New Deposit Request!**\n"
+                f"\U0001f514 New Deposit Request!\n"
                 f"\U0001f464 User: @{username or 'N/A'} (ID: {user.id})\n"
                 f"\U0001f4b3 Method: {pretty}\n"
                 f"\U0001f4b0 Amount: {amount} BDT\n"
                 f"\U0001f194 TrxID: {trx}\n"
-                f"\U0001f4c5 Time: {ts}"
+                f"\U0001f4c5 Time: {ts}\n"
+                f"Deposit ID: #{dep_id}"
             )
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("\u2705 Approve", callback_data=f"dep_approve:{dep_id}"),
                  InlineKeyboardButton("\u274c Reject", callback_data=f"dep_reject:{dep_id}")]
             ])
-            async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
-                await abot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_text, reply_markup=keyboard, parse_mode="Markdown")
+            # Try ADMIN_CHAT_ID first, fallback to all ADMIN_USER_IDS
+            targets = []
+            try:
+                # ADMIN_CHAT_ID may be single admin; always include
+                targets.append(ADMIN_CHAT_ID)
+            except Exception:
+                pass
+            # also include any ADMIN_USER_IDS not already in targets
+            from config import ADMIN_USER_IDS as _ADMIN_IDS
+            for aid in _ADMIN_IDS:
+                if aid not in targets:
+                    targets.append(aid)
+            sent_to = 0
+            last_err = None
+            for chat_id in targets:
+                try:
+                    async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
+                        await abot.send_message(chat_id=chat_id, text=admin_text, reply_markup=keyboard)
+                    sent_to += 1
+                except Exception as e2:
+                    last_err = e2
+                    logger.warning("Deposit forward to %s failed: %s", chat_id, e2)
+                    continue
+            if sent_to == 0:
+                raise last_err or Exception("No admin chat reachable")
+            else:
+                logger.info("Deposit #%s forwarded to %s admins", dep_id, sent_to)
         except Exception as e:
             logger.error("Forward deposit to admin failed: %s", e, exc_info=True)
+            # keep deposit pending so admin can see via /deposits
         return True
     return False
 
@@ -406,6 +452,7 @@ def build_user_bot() -> Application:
     app = Application.builder().token(USER_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3Get Nid$"), get_pic))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4dd Submit Job$"), submit_job))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b0 Balance$"), balance))

@@ -412,13 +412,15 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return await update.message.reply_text("\u26d4 Unauthorized.")
     s = db.get_stats()
+    pending_deps = len(db.get_pending_deposits(limit=1000))
     text = (
         f"\U0001f4ca Bot Statistics\n\n"
         f"\U0001f465 Total Users: {s['total_users']}\n"
         f"\U0001f4b0 Credits in Circulation: {s['total_credits']}\n"
         f"\U0001f4f7 Photos Available: {s['photos_available']}\n"
         f"\U0001f4e4 Photos Sent: {s['photos_sent']}\n"
-        f"\U0001f4dd Pending Submissions: {s['pending_submissions']}"
+        f"\U0001f4dd Pending Submissions: {s['pending_submissions']}\n"
+        f"\U0001f4b3 Pending Deposits: {pending_deps}"
     )
     await update.message.reply_text(text)
 
@@ -669,6 +671,31 @@ async def pending_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"\u2022 #{s['id']} | User: {s['user_id']} | Type: {s['content_type']} | {s['submitted_at']}")
     await update.message.reply_text("\n".join(lines))
 
+async def deposits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update.effective_user.id):
+        return await update.message.reply_text("\u26d4 Unauthorized.")
+    pending = db.get_pending_deposits(limit=20)
+    if not pending:
+        return await update.message.reply_text("\u2705 No pending deposits.")
+    await update.message.reply_text(f"\U0001f4b3 Pending Deposits: {len(pending)}")
+    for dep in pending:
+        text = (
+            f"\U0001f514 Deposit #{dep['id']}\n"
+            f"\U0001f464 User: @{dep['username'] or 'N/A'} (ID: {dep['user_id']})\n"
+            f"\U0001f4b3 Method: {dep['method']}\n"
+            f"\U0001f4b0 Amount: {dep['amount']} BDT\n"
+            f"\U0001f194 TrxID: {dep['trx_id']}\n"
+            f"\U0001f4c5 Time: {dep['created_at']}"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("\u2705 Approve", callback_data=f"dep_approve:{dep['id']}"),
+             InlineKeyboardButton("\u274c Reject", callback_data=f"dep_reject:{dep['id']}")]
+        ])
+        try:
+            await update.message.reply_text(text, reply_markup=keyboard)
+        except Exception as e:
+            logger.warning("Send pending deposit %s failed: %s", dep['id'], e)
+
 
 # -- Catch-all for admin text input ----------------------------
 
@@ -697,6 +724,7 @@ def build_admin_bot() -> Application:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("addphoto", addphoto_command))
     app.add_handler(CommandHandler("pending", pending_command))
+    app.add_handler(CommandHandler("deposits", deposits_command))
 
     app.add_handler(MessageHandler(filters.Regex("^\U0001f50d Search User$"), search_user_prompt))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4e2 Broadcast$"), broadcast_prompt))
