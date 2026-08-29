@@ -213,21 +213,38 @@ async def _relay_submission(user, content_type: str, content: str, user_caption:
     try:
         async with telegram.Bot(token=ADMIN_BOT_TOKEN) as admin_bot:
             if content_type == "photo":
-                full_caption = header
-                if user_caption:
-                    full_caption += f"\n\n{user_caption}"
-                await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=content, caption=full_caption)
+                full_caption = header + (f"\n\n{user_caption}" if user_caption else "")
+                try:
+                    await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=content, caption=full_caption)
+                except telegram.error.BadRequest:
+                    # cross-bot file_id: download via User Bot and re-upload via Admin Bot
+                    logger.warning("Relay photo cross-bot, downloading via User Bot")
+                    async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+                        tg_file = await ubot.get_file(content)
+                        bio = io.BytesIO()
+                        await tg_file.download_to_memory(bio)
+                        bio.seek(0)
+                        bio.name = "submission.jpg"
+                        await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=bio, caption=full_caption)
             elif content_type == "document":
-                full_caption = header
-                if user_caption:
-                    full_caption += f"\n\n{user_caption}"
-                await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=content, caption=full_caption)
+                full_caption = header + (f"\n\n{user_caption}" if user_caption else "")
+                try:
+                    await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=content, caption=full_caption)
+                except telegram.error.BadRequest:
+                    logger.warning("Relay document cross-bot, downloading via User Bot")
+                    async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+                        tg_file = await ubot.get_file(content)
+                        bio = io.BytesIO()
+                        await tg_file.download_to_memory(bio)
+                        bio.seek(0)
+                        bio.name = "submission.file"
+                        await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=bio, caption=full_caption)
             else:
                 await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{header}\n\n{content}")
     except telegram.error.Forbidden:
-        pass
+        logger.warning("Relay: Admin blocked bot or wrong ADMIN_CHAT_ID")
     except Exception as e:
-        logger.warning("Relay submission failed: %s", e)
+        logger.warning("Relay submission failed: %s", e, exc_info=True)
 
 
 # -- Balance ---------------------------------------------------
