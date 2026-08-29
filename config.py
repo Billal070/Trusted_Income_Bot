@@ -20,13 +20,8 @@ PRODUCT_PRICE = float(os.environ.get("PRODUCT_PRICE", "1.5"))
 # Multi-category product catalog: {category: [{name, sheet, price}]}
 import json as _json
 _DEFAULT_CATALOG = {
-    "Category A": [
-        {"name": "NID Standard", "sheet": "Trusted Income Bot", "price": 1.5},
-        {"name": "NID Premium", "sheet": "Trusted Income Bot", "price": 2.5},
-    ],
-    "Category B": [
-        {"name": "Account Basic", "sheet": "Trusted Income Bot", "price": 1.0},
-        {"name": "Account Pro", "sheet": "Trusted Income Bot", "price": 3.0},
+    "\U0001f4e7Mail": [
+        {"name": "\U0001f4e7Fr Outlook - 1.50 BDT", "sheet": "Trusted Income Bot", "price": 1.5},
     ],
 }
 try:

@@ -344,16 +344,11 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prods = PRODUCT_CATALOG.get(cat, [])
         if not prods:
             return await query.edit_message_text("\u26a0\ufe0f No products in this category.")
-        await query.edit_message_text(f"\U0001f4e6 **Product Name: {cat}**\nPlease select a product:", parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton(f"{p['name']} - {p['price']} BDT", callback_data=f"prod_item:{idx}:{i}")] for i, p in enumerate(prods)] +
-                [[InlineKeyboardButton("\u2b05 Back", callback_data="prod_back")]]
-            ))
-        # flatten rows: one per product
-        # Build properly
+        # Build properly - show inline button exactly as product name (avoid duplicate BDT)
         rows = []
         for i, p in enumerate(prods):
-            rows.append([InlineKeyboardButton(f"{p['name']} - {p['price']} BDT", callback_data=f"prod_item:{idx}:{i}")])
+            label = p['name'] if "BDT" in p['name'] else f"{p['name']} - {p['price']} BDT"
+            rows.append([InlineKeyboardButton(label, callback_data=f"prod_item:{idx}:{i}")])
         rows.append([InlineKeyboardButton("\u2b05 Back", callback_data="prod_back")])
         await query.edit_message_text(f"\U0001f4e6 **Product Name: {cat}**\nPlease select a product:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(rows))
         return
