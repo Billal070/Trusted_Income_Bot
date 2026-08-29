@@ -62,6 +62,7 @@ def _clear_deposit_state(context: ContextTypes.DEFAULT_TYPE):
 
 def _clear_product_state(context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("awaiting_product_qty", None)
+    context.user_data.pop("selected_product", None)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # clear all pending states: deposit, submission, nid lock, product
@@ -309,23 +310,168 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\u09f3 Main Balance: {bdt} BDT"
     )
 
-# -- Products (Google Sheets + Excel) ----------------------
+# -- Products (Multi-category Inline Navigation + Confirmation) --
+
+from config import PRODUCT_CATALOG
+
+def _clear_pending_order(context: ContextTypes.DEFAULT_TYPE):
+    for k in ("pending_order", "awaiting_product_qty", "selected_product"):
+        context.user_data.pop(k, None)
 
 async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_deposit_state(context)
     _clear_product_state(context)
-    # Unpause: show price and ask quantity
-    await update.message.reply_text(
-        f"\U0001f6cd\ufe0f Products Store\n\n"
-        f"\U0001f6d2 Product Price: {PRODUCT_PRICE} BDT / unit.\n"
-        f"Please enter the quantity you wish to purchase (e.g., 5):"
-    )
-    context.user_data["awaiting_product_qty"] = True
+    _clear_pending_order(context)
+    # Step 1: Show categories
+    cats = list(PRODUCT_CATALOG.keys())
+    if not cats:
+        await update.message.reply_text("\u26a0\ufe0f No categories configured.")
+        return
+    rows = [[InlineKeyboardButton(cat, callback_data=f"prod_cat:{i}")] for i, cat in enumerate(cats)]
+    rows.append([InlineKeyboardButton("\u274c Close", callback_data="prod_close")])
+    await update.message.reply_text("\U0001f4c2 **Select a Category:**", reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+
+async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    await query.answer()
+    cats = list(PRODUCT_CATALOG.keys())
+    if data.startswith("prod_cat:"):
+        try:
+            idx = int(data.split(":")[1]); cat = cats[idx]
+        except Exception:
+            return
+        prods = PRODUCT_CATALOG.get(cat, [])
+        if not prods:
+            return await query.edit_message_text("\u26a0\ufe0f No products in this category.")
+        await query.edit_message_text(f"\U0001f4e6 **Product Name: {cat}**\nPlease select a product:", parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton(f"{p['name']} - {p['price']} BDT", callback_data=f"prod_item:{idx}:{i}")] for i, p in enumerate(prods)] +
+                [[InlineKeyboardButton("\u2b05 Back", callback_data="prod_back")]]
+            ))
+        # flatten rows: one per product
+        # Build properly
+        rows = []
+        for i, p in enumerate(prods):
+            rows.append([InlineKeyboardButton(f"{p['name']} - {p['price']} BDT", callback_data=f"prod_item:{idx}:{i}")])
+        rows.append([InlineKeyboardButton("\u2b05 Back", callback_data="prod_back")])
+        await query.edit_message_text(f"\U0001f4e6 **Product Name: {cat}**\nPlease select a product:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(rows))
+        return
+    if data == "prod_back":
+        cats = list(PRODUCT_CATALOG.keys())
+        rows = [[InlineKeyboardButton(cat, callback_data=f"prod_cat:{i}")] for i, cat in enumerate(cats)]
+        rows.append([InlineKeyboardButton("\u274c Close", callback_data="prod_close")])
+        return await query.edit_message_text("\U0001f4c2 **Select a Category:**", reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+    if data == "prod_close":
+        try: await query.delete_message()
+        except: await query.edit_message_text("\u274c Closed.")
+        return
+    if data.startswith("prod_item:"):
+        try:
+            _, c_idx, p_idx = data.split(":"); c_idx=int(c_idx); p_idx=int(p_idx)
+            cat = cats[c_idx]; prod = PRODUCT_CATALOG[cat][p_idx]
+        except Exception:
+            return
+        # Store selected product
+        context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": prod["name"], "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
+        context.user_data["awaiting_product_qty"] = True
+        await query.edit_message_text(
+            f"\U0001f6d2 **{prod['name']}**\n\U0001f4b5 **Price:** {prod['price']} BDT / Unit\n\n\U0001f522 **Enter Quantity:**",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]])
+        )
+        await query.message.reply_text("Enter quantity (e.g., 5):")
+        return
+    if data == "prod_cancel":
+        _clear_pending_order(context)
+        _clear_product_state(context)
+        try: await query.edit_message_text("\u274c **Order Has Been Canceled.**", parse_mode="Markdown")
+        except: pass
+        return
+    if data == "prod_confirm":
+        # Execute order
+        order = context.user_data.get("pending_order")
+        if not order:
+            return await query.edit_message_text("\u26a0\ufe0f No pending order. Please start again via \U0001f6cd\ufe0f Products.")
+        await query.edit_message_text("\u23f3 Processing order...")
+        # Re-validate balance and stock then deduct + allocate
+        user = update.effective_user
+        qty = order["qty"]; price = order["price"]; total = order["total"]; sheet = order["sheet"]; prod_name = order["name"]
+        bal = db.get_bdt_balance(user.id)
+        if bal < total - 1e-9:
+            _clear_pending_order(context)
+            return await query.message.reply_text(f"\u26a0\ufe0f Insufficient BDT Balance! Please deposit first. Required: {total} BDT, Balance: {bal} BDT")
+        try:
+            import sheets
+            avail = sheets.count_available(sheet)
+        except Exception as e:
+            logger.error("Sheets count failed %s: %s", sheet, e, exc_info=True)
+            _clear_pending_order(context)
+            return await query.message.reply_text("\u26a0\ufe0f Stock check failed. Try later.")
+        if avail < qty:
+            _clear_pending_order(context)
+            return await query.message.reply_text(f"\u26a0\ufe0f Low Stock! Only {avail} items left for {prod_name}.")
+        new_bal = db.deduct_bdt_for_purchase(user.id, total)
+        if new_bal is None:
+            _clear_pending_order(context)
+            return await query.message.reply_text(f"\u26a0\ufe0f Insufficient BDT Balance! Required: {total} BDT")
+        username = user.username or str(user.id)
+        try:
+            import sheets
+            items = await sheets.allocate_items(username, qty, sheet)
+        except ValueError as ve:
+            db.refund_bdt_purchase(user.id, total)
+            _clear_pending_order(context)
+            return await query.message.reply_text(f"\u26a0\ufe0f {ve}")
+        except Exception as e:
+            db.refund_bdt_purchase(user.id, total)
+            logger.error("Sheets allocate failed %s: %s", sheet, e, exc_info=True)
+            _clear_pending_order(context)
+            return await query.message.reply_text("\u26a0\ufe0f Allocation failed. Refunded.")
+        # Excel
+        import tempfile, os
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+        from datetime import datetime, timezone
+        try:
+            wb = Workbook(); ws = wb.active; ws.title = "Order"
+            ws["A1"] = "Sl No."; ws["B1"] = "Product Data / Key"
+            for cell in ws[1]: cell.font = Font(bold=True)
+            for i, it in enumerate(items, start=1):
+                ws.cell(row=i+1, column=1, value=i); ws.cell(row=i+1, column=2, value=it)
+            ws.column_dimensions["A"].width = 10; ws.column_dimensions["B"].width = 50
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            safe_user = (username.lstrip("@") or str(user.id)).replace("/", "_")[:20]
+            fname = f"Order_{safe_user}_{ts}.xlsx"
+            tmp_path = os.path.join(tempfile.gettempdir(), fname)
+            wb.save(tmp_path)
+            receipt = (
+                f"\U0001f389 **Purchase Successful!**\n\n"
+                f"\U0001f4e6 **{prod_name} delivered**\n"
+                f"\u26a1 **{qty}x {prod_name}**\n"
+                f"\U0001f4b0 **Charged:** {total} BDT\n"
+                f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+                f"\U0001f447 **File Below**"
+            )
+            await query.message.reply_text(receipt, parse_mode="Markdown")
+            await context.bot.send_document(chat_id=update.effective_chat.id, document=open(tmp_path, "rb"), filename=fname)
+            try: os.remove(tmp_path)
+            except: pass
+            _clear_pending_order(context)
+        except Exception as e:
+            logger.error("Excel/send failed: %s", e, exc_info=True)
+            await query.message.reply_text("\u26a0\ufe0f Allocated but file failed. Contact support.")
+            _clear_pending_order(context)
+        return
 
 async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("awaiting_product_qty"):
         return False
     text = (update.message.text or "").strip()
+    if text.lower() in ("/cancel", "cancel"):
+        _clear_pending_order(context)
+        await update.message.reply_text("\u274c **Order Has Been Canceled.**", parse_mode="Markdown")
+        return True
     if not text.isdigit():
         await update.message.reply_text("\u26a0\ufe0f Please enter a valid number (e.g., 5). Send /cancel to abort.")
         return True
@@ -334,85 +480,31 @@ async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("\u26a0\ufe0f Quantity must be > 0.")
         return True
     if qty > 1000:
-        await update.message.reply_text("\u26a0\ufe0f Max 1000 per order. Contact support for larger orders.")
+        await update.message.reply_text("\u26a0\ufe0f Max 1000 per order.")
+        return True
+    sel = context.user_data.get("selected_product")
+    if not sel:
+        _clear_pending_order(context)
+        await update.message.reply_text("\u26a0\ufe0f No product selected. Open \U0001f6cd\ufe0f Products again.")
         return True
     context.user_data.pop("awaiting_product_qty", None)
     user = update.effective_user
-    if db.is_banned(user.id):
-        await update.message.reply_text("\U0001f6ab You are banned.")
-        return True
-    total_cost = round(qty * PRODUCT_PRICE, 2)
-    # Check balance
+    total = round(qty * float(sel["price"]), 2)
     bal = db.get_bdt_balance(user.id)
-    if bal < total_cost - 1e-9:
-        await update.message.reply_text(f"\u26a0\ufe0f Insufficient Main Balance! Required: {total_cost} BDT. Your Balance: {bal} BDT. Please deposit BDT first.")
-        return True
-    # Check stock via Google Sheets
-    await update.message.reply_text(f"\u23f3 Checking stock for {qty} item(s)...")
-    try:
-        import sheets
-        available = sheets.count_available()
-    except Exception as e:
-        logger.error("Sheets count failed: %s", e, exc_info=True)
-        await update.message.reply_text("\u26a0\ufe0f Stock check failed. Please try again later or contact support. (Google Sheets not configured?)")
-        return True
-    if available < qty:
-        await update.message.reply_text(f"\u26a0\ufe0f Low Stock! Only {available} item(s) currently available.")
-        return True
-    # Deduct balance first (atomic), then allocate sheet; refund on sheet failure
-    new_bal = db.deduct_bdt_for_purchase(user.id, total_cost)
-    if new_bal is None:
-        await update.message.reply_text(f"\u26a0\ufe0f Insufficient Main Balance! Required: {total_cost} BDT. Your Balance: {bal} BDT.")
-        return True
-    # Allocate sheet
-    username = user.username or str(user.id)
-    try:
-        import sheets
-        items = await sheets.allocate_items(username, qty)
-    except ValueError as ve:
-        # insufficient stock race - refund
-        db.refund_bdt_purchase(user.id, total_cost)
-        await update.message.reply_text(f"\u26a0\ufe0f {ve}")
-        return True
-    except Exception as e:
-        db.refund_bdt_purchase(user.id, total_cost)
-        logger.error("Sheets allocate failed: %s", e, exc_info=True)
-        await update.message.reply_text("\u26a0\ufe0f Allocation failed. Your balance was refunded. Please try again.")
-        return True
-    # Generate Excel
-    import tempfile, os
-    from openpyxl import Workbook
-    from openpyxl.styles import Font
-    from datetime import datetime, timezone
-    try:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Order"
-        ws["A1"] = "Sl No."
-        ws["B1"] = "Product Data / Key"
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
-        for idx, item in enumerate(items, start=1):
-            ws.cell(row=idx+1, column=1, value=idx)
-            ws.cell(row=idx+1, column=2, value=item)
-        ws.column_dimensions["A"].width = 10
-        ws.column_dimensions["B"].width = 50
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        safe_user = (username.lstrip("@") or str(user.id)).replace("/", "_")[:20]
-        fname = f"Order_{safe_user}_{ts}.xlsx"
-        tmp_path = os.path.join(tempfile.gettempdir(), fname)
-        wb.save(tmp_path)
-        # Send
-        await update.message.reply_text(f"\U0001f389 Purchase Successful!\n\U0001f4e6 Quantity: {qty} item(s)\n\U0001f4b0 Total Charged: {total_cost} BDT\n\U0001f4b3 Remaining BDT Balance: {new_bal} BDT\n\n\U0001f4c4 Your product file has been attached below.")
-        await context.bot.send_document(chat_id=update.effective_chat.id, document=open(tmp_path, "rb"), filename=fname)
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
-    except Exception as e:
-        # refund if excel/send failed? Stock already allocated - do not refund stock, but log
-        logger.error("Excel/send failed: %s", e, exc_info=True)
-        await update.message.reply_text("\u26a0\ufe0f Order allocated but file delivery failed. Contact support with your order quantity.")
+    # Store pending order for confirmation
+    context.user_data["pending_order"] = {"name": sel["name"], "sheet": sel["sheet"], "price": float(sel["price"]), "qty": qty, "total": total}
+    # Order Summary with Confirm/Cancel
+    summary = (
+        f"\U0001f4cb **Order Summary**\n"
+        f"\u2500──────────────────\n"
+        f"\U0001f4e6 **Product:** {sel['name']}\n"
+        f"\U0001f522 **Quantity:** {qty}\n"
+        f"\U0001f4b0 **Total:** {total} BDT\n"
+        f"\U0001f4b3 **Your Balance:** {bal} BDT\n"
+        f"\u2501━━━━━━━━━━━━━━━━━━━━"
+    )
+    await update.message.reply_text(summary, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2705 Confirm Order", callback_data="prod_confirm"), InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]]))
     return True
 
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -574,6 +666,7 @@ def build_user_bot() -> Application:
     app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Products$"), products))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4de Support$"), support))
     app.add_handler(CallbackQueryHandler(deposit_callback, pattern=r"^dep_method:"))
+    app.add_handler(CallbackQueryHandler(products_callback, pattern=r"^prod_"))
 
     # Catch text/photo/document that arrive while awaiting a submission/deposit
     app.add_handler(MessageHandler(

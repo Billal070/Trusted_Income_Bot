@@ -19,22 +19,23 @@ def _get_credentials():
     if GOOGLE_CREDENTIALS_FILE:
         return Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=SCOPES)
     raise RuntimeError("Google credentials not configured: set GOOGLE_CREDENTIALS_JSON or GOOGLE_CREDENTIALS_FILE")
-def _get_worksheet():
+def _get_worksheet(sheet_name: str | None = None):
     creds = _get_credentials()
     client = gspread.authorize(creds)
     if GOOGLE_SHEET_ID:
         sh = client.open_by_key(GOOGLE_SHEET_ID)
     else:
         sh = client.open(GOOGLE_SHEET_NAME)
+    target = sheet_name or GOOGLE_SHEET_NAME
     try:
-        ws = sh.worksheet(GOOGLE_SHEET_NAME)
+        ws = sh.worksheet(target)
     except Exception:
         ws = sh.sheet1
     return ws
 def _now_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-def count_available():
-    ws = _get_worksheet()
+def count_available(sheet_name: str | None = None):
+    ws = _get_worksheet(sheet_name)
     values = ws.get_all_values()
     if not values:
         return 0
@@ -50,11 +51,11 @@ def count_available():
         if col_a and not col_b:
             cnt += 1
     return cnt
-async def allocate_items(username: str, quantity: int):
+async def allocate_items(username: str, quantity: int, sheet_name: str | None = None):
     if not username.startswith("@"):
         username = "@" + username.lstrip("@") if username else "@unknown"
     async with _alloc_lock:
-        ws = _get_worksheet()
+        ws = _get_worksheet(sheet_name)
         values = ws.get_all_values()
         if not values:
             raise ValueError("Sheet is empty")

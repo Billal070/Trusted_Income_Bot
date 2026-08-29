@@ -17,3 +17,20 @@ GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "Trusted Income Bot")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
 GOOGLE_CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE", "")
 PRODUCT_PRICE = float(os.environ.get("PRODUCT_PRICE", "1.5"))
+# Multi-category product catalog: {category: [{name, sheet, price}]}
+import json as _json
+_DEFAULT_CATALOG = {
+    "Category A": [
+        {"name": "NID Standard", "sheet": "Trusted Income Bot", "price": 1.5},
+        {"name": "NID Premium", "sheet": "Trusted Income Bot", "price": 2.5},
+    ],
+    "Category B": [
+        {"name": "Account Basic", "sheet": "Trusted Income Bot", "price": 1.0},
+        {"name": "Account Pro", "sheet": "Trusted Income Bot", "price": 3.0},
+    ],
+}
+try:
+    _raw = os.environ.get("PRODUCT_CATALOG_JSON", "")
+    PRODUCT_CATALOG = _json.loads(_raw) if _raw.strip() else _DEFAULT_CATALOG
+except Exception:
+    PRODUCT_CATALOG = _DEFAULT_CATALOG
