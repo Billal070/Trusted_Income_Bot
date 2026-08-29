@@ -447,15 +447,15 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fname = f"Order_{safe_user}_{ts}.xlsx"
             tmp_path = os.path.join(tempfile.gettempdir(), fname)
             wb.save(tmp_path)
-            receipt = (
-                f"\U0001f389 **Purchase Successful!**\n\n"
-                f"\U0001f4e6 **{prod_name} delivered**\n"
-                f"\u26a1 **{qty}x {prod_name}**\n"
-                f"\U0001f4b0 **Charged:** {total} BDT\n"
+            purchased_product_name = prod_name
+            success_msg = (
+                f"\u2705 <b>Mail Delivered!</b>\n\n"
+                f"\U0001f4e7 <b>{qty}x {purchased_product_name}</b>\n"
+                f"\U0001f4b0 <b>Paid  : {total:.2f} BDT</b>\n"
                 f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
-                f"\U0001f447 **File Below**"
+                f"\U0001f4c2 <b>File below \u2193</b>"
             )
-            await query.message.reply_text(receipt, parse_mode="Markdown")
+            await query.message.reply_text(success_msg, parse_mode="HTML")
             await context.bot.send_document(chat_id=update.effective_chat.id, document=open(tmp_path, "rb"), filename=fname)
             try: os.remove(tmp_path)
             except: pass
