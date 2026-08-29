@@ -488,12 +488,12 @@ async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_
     total = round(qty * float(sel["price"]), 2)
     bal = db.get_bdt_balance(user.id)
     context.user_data["pending_order"] = {"name": sel["name"], "sheet": sel["sheet"], "price": float(sel["price"]), "qty": qty, "total": total}
-    # Strict alignment per spec - colons vertically aligned
+    # Exact spec format: Order Summary + 2 blank lines then Product, no extra divider, bold labels+values
     summary = (
         f"\U0001f4e9 <b>Order Summary</b>\n"
         f"\n"
-        f"\u26a1 <b>Product   : {sel['name']}</b>\n"
         f"\n"
+        f"\u26a1 <b>Product   : {sel['name']}</b>\n"
         f"\U0001faa1 <b>Quantity  : {qty}</b>\n"
         f"\U0001f4b0 <b>Total     : {total} BDT</b>\n"
         f"\U0001f45b <b>Balance   : {bal} BDT</b>"
