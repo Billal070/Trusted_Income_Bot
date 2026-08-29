@@ -322,14 +322,13 @@ async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_deposit_state(context)
     _clear_product_state(context)
     _clear_pending_order(context)
-    # Step 1: Show categories
     cats = list(PRODUCT_CATALOG.keys())
     if not cats:
         await update.message.reply_text("\u26a0\ufe0f No categories configured.")
         return
     rows = [[InlineKeyboardButton(cat, callback_data=f"prod_cat:{i}")] for i, cat in enumerate(cats)]
     rows.append([InlineKeyboardButton("\u274c Close", callback_data="prod_close")])
-    await update.message.reply_text("\U0001f4c2 **Select a Category:**", reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+    await update.message.reply_text("\U0001f4c2 <b>Select Category</b>", reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
 
 async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -344,19 +343,18 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prods = PRODUCT_CATALOG.get(cat, [])
         if not prods:
             return await query.edit_message_text("\u26a0\ufe0f No products in this category.")
-        # Build properly - show inline button exactly as product name (avoid duplicate BDT)
         rows = []
         for i, p in enumerate(prods):
             label = p['name'] if "BDT" in p['name'] else f"{p['name']} - {p['price']} BDT"
             rows.append([InlineKeyboardButton(label, callback_data=f"prod_item:{idx}:{i}")])
         rows.append([InlineKeyboardButton("\u2b05 Back", callback_data="prod_back")])
-        await query.edit_message_text(f"\U0001f4e6 **Product Name: {cat}**\nPlease select a product:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(rows))
+        await query.edit_message_text(f"\U0001f4e6 <b>{cat}</b>\nPlease select a product below:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
         return
     if data == "prod_back":
         cats = list(PRODUCT_CATALOG.keys())
         rows = [[InlineKeyboardButton(cat, callback_data=f"prod_cat:{i}")] for i, cat in enumerate(cats)]
         rows.append([InlineKeyboardButton("\u274c Close", callback_data="prod_close")])
-        return await query.edit_message_text("\U0001f4c2 **Select a Category:**", reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+        return await query.edit_message_text("\U0001f4c2 <b>Select Category</b>", reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
     if data == "prod_close":
         try: await query.delete_message()
         except: await query.edit_message_text("\u274c Closed.")
@@ -367,12 +365,11 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cat = cats[c_idx]; prod = PRODUCT_CATALOG[cat][p_idx]
         except Exception:
             return
-        # Store selected product
         context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": prod["name"], "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
         context.user_data["awaiting_product_qty"] = True
         await query.edit_message_text(
-            f"\U0001f6d2 **{prod['name']}**\n\U0001f4b5 **Price:** {prod['price']} BDT / Unit\n\n\U0001f522 **Enter Quantity:**",
-            parse_mode="Markdown",
+            f"\U0001f6d2 <b>{prod['name']}</b>\n\U0001f4b5 <b>Price:</b> <b>{prod['price']} BDT / Unit</b>\n\n\U0001f522 <b>Enter Quantity:</b>",
+            parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]])
         )
         await query.message.reply_text("Enter quantity (e.g., 5):")
@@ -380,7 +377,7 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "prod_cancel":
         _clear_pending_order(context)
         _clear_product_state(context)
-        try: await query.edit_message_text("\u274c **Order Has Been Canceled.**", parse_mode="Markdown")
+        try: await query.edit_message_text("\u274c <b>Order Has Been Canceled.</b>", parse_mode="HTML")
         except: pass
         return
     if data == "prod_confirm":
@@ -465,7 +462,7 @@ async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_
     text = (update.message.text or "").strip()
     if text.lower() in ("/cancel", "cancel"):
         _clear_pending_order(context)
-        await update.message.reply_text("\u274c **Order Has Been Canceled.**", parse_mode="Markdown")
+        await update.message.reply_text("\u274c <b>Order Has Been Canceled.</b>", parse_mode="HTML")
         return True
     if not text.isdigit():
         await update.message.reply_text("\u26a0\ufe0f Please enter a valid number (e.g., 5). Send /cancel to abort.")
@@ -486,19 +483,17 @@ async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_
     user = update.effective_user
     total = round(qty * float(sel["price"]), 2)
     bal = db.get_bdt_balance(user.id)
-    # Store pending order for confirmation
     context.user_data["pending_order"] = {"name": sel["name"], "sheet": sel["sheet"], "price": float(sel["price"]), "qty": qty, "total": total}
-    # Order Summary with Confirm/Cancel
     summary = (
-        f"\U0001f4cb **Order Summary**\n"
+        f"\U0001f4cb <b>Order Summary</b>\n"
         f"\u2500──────────────────\n"
-        f"\U0001f4e6 **Product:** {sel['name']}\n"
-        f"\U0001f522 **Quantity:** {qty}\n"
-        f"\U0001f4b0 **Total:** {total} BDT\n"
-        f"\U0001f4b3 **Your Balance:** {bal} BDT\n"
+        f"\U0001f4e6 <b>Product:</b> <b>{sel['name']}</b>\n"
+        f"\U0001f522 <b>Quantity:</b> <b>{qty}</b>\n"
+        f"\U0001f4b0 <b>Total:</b> <b>{total} BDT</b>\n"
+        f"\U0001f4b3 <b>Your Balance:</b> <b>{bal} BDT</b>\n"
         f"\u2501━━━━━━━━━━━━━━━━━━━━"
     )
-    await update.message.reply_text(summary, parse_mode="Markdown",
+    await update.message.reply_text(summary, parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2705 Confirm Order", callback_data="prod_confirm"), InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]]))
     return True
 
