@@ -4,6 +4,7 @@ User Bot - the bot regular users interact with.
 
 import io
 import logging
+import os
 import telegram
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -458,6 +459,21 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_document(chat_id=update.effective_chat.id, document=open(tmp_path, "rb"), filename=fname)
             try: os.remove(tmp_path)
             except: pass
+            # --- SEND NOTIFICATION TO LOG GROUP ---
+            log_group_id = os.getenv("LOG_GROUP_ID")
+            if log_group_id:
+                try:
+                    group_msg = (
+                        f"🎉 <b>New Order Placed!</b>\n\n"
+                        f"👤 <b>User:</b> @{update.effective_user.username or update.effective_user.first_name} [<code>{update.effective_user.id}</code>]\n"
+                        f"⚡️ <b>Product:</b> 📧 Fr Outlook\n"
+                        f"🪡 <b>Quantity:</b> {qty}\n"
+                        f"💰 <b>Total:</b> {total:.2f} BDT\n"
+                        f"👛 <b>Remaining Bal:</b> {new_bal:.2f} BDT"
+                    )
+                    await context.bot.send_message(chat_id=log_group_id, text=group_msg, parse_mode="HTML")
+                except Exception as e:
+                    print(f"Failed to send log to group: {e}")
             _clear_pending_order(context)
         except Exception as e:
             logger.error("Excel/send failed: %s", e, exc_info=True)
