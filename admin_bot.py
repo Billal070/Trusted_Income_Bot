@@ -82,11 +82,13 @@ async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         return await update.message.reply_text("\u274c User not found.")
 
     status = "Active" if not user["is_banned"] else "Banned"
+    bdt = db.get_bdt_balance(user["user_id"])
     text = (
         f"\U0001f464 User Info\n"
         f"ID: {user['user_id']}\n"
         f"Username: @{user['username'] or 'N/A'}\n"
-        f"Balance: {user['credits']} credits\n"
+        f"\U0001fa99 Credits: {user['credits']}\n"
+        f"\u09f3 Main Balance: {bdt} BDT\n"
         f"Status: {status}"
     )
     uid = user["user_id"]
@@ -128,15 +130,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             res = db.approve_deposit(dep_id, admin_id)
             if not res:
                 return await query.edit_message_text("\u274c Failed to approve.")
-            # edit admin message
             try:
-                await query.edit_message_text(f"\u2705 Deposit of {dep['amount']} BDT for @{dep['username'] or dep['user_id']} approved. Credits added.")
+                await query.edit_message_text(f"\u2705 Deposit of {dep['amount']} BDT for @{dep['username'] or dep['user_id']} approved. Main Balance updated.")
             except Exception:
                 pass
-            # notify user via User Bot
             try:
                 async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
-                    await ubot.send_message(chat_id=dep["user_id"], text=f"\U0001f389 Success! Your deposit of {dep['amount']} BDT has been approved. {dep['amount']} Credits added to your account! \U0001f4b0 Balance: {res['new_credits']} credits")
+                    await ubot.send_message(chat_id=dep["user_id"], text=f"\U0001f389 Success! Your deposit of {dep['amount']} BDT has been approved. {dep['amount']} BDT added to your Main Balance! \u09f3 New Main Balance: {res['new_bdt']} BDT")
             except Exception as e:
                 logger.warning("Notify user approve failed: %s", e)
             return
@@ -288,13 +288,14 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         if u:
             sub_count = db.get_submission_count(uid)
             summary = db.get_credit_summary(uid)
+            bdt = db.get_bdt_balance(uid)
             status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
             text = (
                 f"\U0001f464 User Details\n"
                 f"ID: {u['user_id']}\n"
                 f"Username: @{u['username'] or 'N/A'}\n"
                 f"Name: {u['first_name'] or 'N/A'}\n"
-                f"Balance: {u['credits']} credits\n"
+                f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
                 f"Status: {status}\n"
                 f"\U0001f4dd Total Submissions: {sub_count}\n"
                 f"\u2795 Total Added: {summary['added']} credits\n"
@@ -322,13 +323,14 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         if u:
             sub_count = db.get_submission_count(uid)
             summary = db.get_credit_summary(uid)
+            bdt = db.get_bdt_balance(uid)
             status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
             text = (
                 f"\U0001f464 User Details\n"
                 f"ID: {u['user_id']}\n"
                 f"Username: @{u['username'] or 'N/A'}\n"
                 f"Name: {u['first_name'] or 'N/A'}\n"
-                f"Balance: {u['credits']} credits\n"
+                f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
                 f"Status: {status}\n"
                 f"\U0001f4dd Total Submissions: {sub_count}\n"
                 f"\u2795 Total Added: {summary['added']} credits\n"
@@ -492,13 +494,14 @@ def _user_detail_text(uid: int) -> tuple[str, InlineKeyboardMarkup]:
         return "\u274c User not found.", InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data="mlist:0")]])
     sub_count = db.get_submission_count(uid)
     summary = db.get_credit_summary(uid)
+    bdt = db.get_bdt_balance(uid)
     status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
     text = (
         f"\U0001f464 User Details\n"
         f"ID: {u['user_id']}\n"
         f"Username: @{u['username'] or 'N/A'}\n"
         f"Name: {u['first_name'] or 'N/A'}\n"
-        f"Balance: {u['credits']} credits\n"
+        f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
         f"Status: {status}\n"
         f"\U0001f4dd Total Submissions: {sub_count}\n"
         f"\u2795 Total Added: {summary['added']} credits\n"
@@ -524,13 +527,14 @@ async def show_user_detail(query: CallbackQuery, uid: int, page: int):
         return await query.edit_message_text("\u274c User not found.")
     sub_count = db.get_submission_count(uid)
     summary = db.get_credit_summary(uid)
+    bdt = db.get_bdt_balance(uid)
     status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
     text = (
         f"\U0001f464 User Details\n"
         f"ID: {u['user_id']}\n"
         f"Username: @{u['username'] or 'N/A'}\n"
         f"Name: {u['first_name'] or 'N/A'}\n"
-        f"Balance: {u['credits']} credits\n"
+        f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
         f"Status: {status}\n"
         f"\U0001f4dd Total Submissions: {sub_count}\n"
         f"\u2795 Total Added: {summary['added']} credits\n"
@@ -696,6 +700,87 @@ async def deposits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.warning("Send pending deposit %s failed: %s", dep['id'], e)
 
+# -- Admin manual credit/balance commands (strict separation) --
+
+async def _parse_credit_args(update: Update):
+    if len(update.message.text.split()) < 3:
+        await update.message.reply_text("Usage: /addcredit <user_id> <amount>\nExample: /addcredit 123456789 100")
+        return None, None
+    parts = update.message.text.split()
+    try:
+        uid = int(parts[1]); amt = int(parts[2])
+        if amt <= 0: raise ValueError
+        return uid, amt
+    except Exception:
+        return None, None
+
+async def addcredit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update.effective_user.id):
+        return await update.message.reply_text("\u26d4 Unauthorized.")
+    uid, amt = await _parse_credit_args(update)
+    if uid is None:
+        return await update.message.reply_text("\u274c Invalid args. Usage: /addcredit <user_id> <amount>")
+    if not db.get_user(uid):
+        return await update.message.reply_text("\u274c User not found.")
+    new = db.add_credit(uid, amt, update.effective_user.id)
+    await update.message.reply_text(f"\u2705 Added {amt} credits to {uid}. New credits: {new}")
+    from user_bot import notify_user_credit_change
+    await notify_user_credit_change(uid, amt, "add", new)
+
+async def removecredit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update.effective_user.id):
+        return await update.message.reply_text("\u26d4 Unauthorized.")
+    uid, amt = await _parse_credit_args(update)
+    if uid is None:
+        return await update.message.reply_text("\u274c Invalid args. Usage: /removecredit <user_id> <amount>")
+    u = db.get_user(uid)
+    if not u:
+        return await update.message.reply_text("\u274c User not found.")
+    cur = int(u["credits"] or 0)
+    deduct = min(cur, amt)
+    new = db.deduct_credit(uid, deduct, update.effective_user.id)
+    await update.message.reply_text(f"\u2705 Deducted {deduct} credits from {uid} (requested {amt}). New credits: {new}")
+    if deduct>0:
+        from user_bot import notify_user_credit_change
+        await notify_user_credit_change(uid, deduct, "deduct", new)
+
+async def addbalance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update.effective_user.id):
+        return await update.message.reply_text("\u26d4 Unauthorized.")
+    uid, amt = await _parse_credit_args(update)
+    if uid is None:
+        # reuse parser but message
+        return await update.message.reply_text("\u274c Invalid args. Usage: /addbalance <user_id> <amount>")
+    if not db.get_user(uid):
+        return await update.message.reply_text("\u274c User not found.")
+    new = db.add_bdt_balance(uid, amt, update.effective_user.id)
+    await update.message.reply_text(f"\u2705 Added {amt} BDT to {uid}. New Main Balance: {new} BDT")
+    try:
+        async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+            await ubot.send_message(chat_id=uid, text=f"\u2705 {amt} BDT added to your Main Balance! New Main Balance: {new} BDT")
+    except Exception:
+        pass
+
+async def removebalance_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update.effective_user.id):
+        return await update.message.reply_text("\u26d4 Unauthorized.")
+    uid, amt = await _parse_credit_args(update)
+    if uid is None:
+        return await update.message.reply_text("\u274c Invalid args. Usage: /removebalance <user_id> <amount>")
+    u = db.get_user(uid)
+    if not u:
+        return await update.message.reply_text("\u274c User not found.")
+    cur = db.get_bdt_balance(uid)
+    deduct = min(cur, amt)
+    new = db.remove_bdt_balance(uid, deduct, update.effective_user.id)
+    await update.message.reply_text(f"\u2705 Deducted {deduct} BDT from {uid} (requested {amt}). New Main Balance: {new} BDT")
+    if deduct>0:
+        try:
+            async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+                await ubot.send_message(chat_id=uid, text=f"\u2796 {deduct} BDT deducted from your Main Balance. New Main Balance: {new} BDT")
+        except Exception:
+            pass
+
 
 # -- Catch-all for admin text input ----------------------------
 
@@ -725,6 +810,10 @@ def build_admin_bot() -> Application:
     app.add_handler(CommandHandler("addphoto", addphoto_command))
     app.add_handler(CommandHandler("pending", pending_command))
     app.add_handler(CommandHandler("deposits", deposits_command))
+    app.add_handler(CommandHandler("addcredit", addcredit_cmd))
+    app.add_handler(CommandHandler("removecredit", removecredit_cmd))
+    app.add_handler(CommandHandler("addbalance", addbalance_cmd))
+    app.add_handler(CommandHandler("removebalance", removebalance_cmd))
 
     app.add_handler(MessageHandler(filters.Regex("^\U0001f50d Search User$"), search_user_prompt))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4e2 Broadcast$"), broadcast_prompt))

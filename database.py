@@ -333,7 +333,7 @@ def get_pending_deposits(limit: int = 20) -> list[dict]:
         return [dict(r) for r in rows]
 
 def approve_deposit(deposit_id: int, admin_id: int) -> dict | None:
-    """Approve deposit: set status approved, add credits + bdt_balance, log. Returns deposit dict or None."""
+    """Approve deposit: set status approved, add ONLY bdt_balance (strict separation). Returns deposit dict or None."""
     with get_conn() as conn:
         dep = conn.execute("SELECT * FROM deposits WHERE id = ? AND status='pending'", (deposit_id,)).fetchone()
         if not dep:
@@ -341,15 +341,31 @@ def approve_deposit(deposit_id: int, admin_id: int) -> dict | None:
         dep = dict(dep)
         amt = int(dep["amount"])
         uid = dep["user_id"]
-        # ensure user exists
         conn.execute("UPDATE deposits SET status='approved', verified_at=?, verified_by=? WHERE id=?", (_now(), admin_id, deposit_id))
-        # 1 Credit = 1 BDT
-        conn.execute("UPDATE users SET credits = COALESCE(credits,0)+?, bdt_balance = COALESCE(bdt_balance,0)+? WHERE user_id=?", (amt, amt, uid))
-        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'add', ?, ?)", (uid, amt, admin_id, _now()))
+        # Strict separation: ONLY bdt_balance, NOT credits
+        conn.execute("UPDATE users SET bdt_balance = COALESCE(bdt_balance,0)+? WHERE user_id=?", (amt, uid))
         row = conn.execute("SELECT credits, bdt_balance FROM users WHERE user_id=?", (uid,)).fetchone()
-        dep["new_credits"] = row["credits"] if row else amt
+        dep["new_credits"] = row["credits"] if row else 0
         dep["new_bdt"] = row["bdt_balance"] if row and "bdt_balance" in row.keys() else amt
         return dep
+
+def add_bdt_balance(user_id: int, amount: int, admin_id: int) -> int:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET bdt_balance = COALESCE(bdt_balance,0)+? WHERE user_id=?", (amount, user_id))
+        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'bdt_add', ?, ?)", (user_id, amount, admin_id, _now()))
+        row = conn.execute("SELECT bdt_balance FROM users WHERE user_id=?", (user_id,)).fetchone()
+        return int(row["bdt_balance"] or 0) if row else amount
+
+def remove_bdt_balance(user_id: int, amount: int, admin_id: int) -> int:
+    with get_conn() as conn:
+        # Prevent negative
+        cur = conn.execute("SELECT bdt_balance FROM users WHERE user_id=?", (user_id,)).fetchone()
+        cur_bal = int(cur["bdt_balance"] or 0) if cur else 0
+        deduct = min(cur_bal, amount)
+        conn.execute("UPDATE users SET bdt_balance = COALESCE(bdt_balance,0)-? WHERE user_id=?", (deduct, user_id))
+        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'bdt_deduct', ?, ?)", (user_id, deduct, admin_id, _now()))
+        row = conn.execute("SELECT bdt_balance FROM users WHERE user_id=?", (user_id,)).fetchone()
+        return int(row["bdt_balance"] or 0) if row else 0
 
 def reject_deposit(deposit_id: int, admin_id: int) -> dict | None:
     with get_conn() as conn:

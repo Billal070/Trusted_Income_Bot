@@ -298,7 +298,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\U0001f464 User: {username}\n"
         f"\U0001f194 ID: {user_id}\n"
         f"\U0001fa99 Current Credits: {credits}\n"
-        f"\u09f3 BDT Stats: {bdt} BDT"
+        f"\u09f3 Main Balance: {bdt} BDT"
     )
 
 # -- Products / Support (placeholders) ------------------------
