@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 import database as db
-from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID, BKASH_NUMBER, NAGAD_NUMBER, SUPPORT_LINK
+from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID, BKASH_NUMBER, NAGAD_NUMBER, SUPPORT_LINK, PRODUCT_PRICE
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +60,13 @@ def _clear_deposit_state(context: ContextTypes.DEFAULT_TYPE):
     for k in ("deposit_method", "deposit_amount", "deposit_step"):
         context.user_data.pop(k, None)
 
+def _clear_product_state(context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("awaiting_product_qty", None)
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # clear all pending states: deposit, submission, nid lock
+    # clear all pending states: deposit, submission, nid lock, product
     _clear_deposit_state(context)
+    _clear_product_state(context)
     context.user_data.pop("awaiting_submission", None)
     context.user_data.pop("getting_nid", None)
     await update.message.reply_text("\u274c Cancelled. Use buttons to start again.", reply_markup=MAIN_KEYBOARD)
@@ -73,6 +77,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.register_user(user.id, user.username, user.first_name)
     _clear_deposit_state(context)
+    _clear_product_state(context)
     context.user_data.pop("awaiting_submission", None)
     if db.is_banned(user.id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
@@ -87,6 +92,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_deposit_state(context)
+    _clear_product_state(context)
     user_id = update.effective_user.id
     if db.is_banned(user_id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
@@ -193,6 +199,7 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def submit_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_deposit_state(context)
+    _clear_product_state(context)
     if db.is_banned(update.effective_user.id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
@@ -286,6 +293,7 @@ async def _relay_submission(user, content_type: str, content: str, user_caption:
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_deposit_state(context)
+    _clear_product_state(context)
     user_id = update.effective_user.id
     if db.is_banned(user_id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
@@ -301,14 +309,115 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\u09f3 Main Balance: {bdt} BDT"
     )
 
-# -- Products / Support (placeholders) ------------------------
+# -- Products (Google Sheets + Excel) ----------------------
 
 async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_deposit_state(context)
-    await update.message.reply_text("\U0001f6cd\ufe0f Product store will be available soon!")
+    _clear_product_state(context)
+    # Unpause: show price and ask quantity
+    await update.message.reply_text(
+        f"\U0001f6cd\ufe0f Products Store\n\n"
+        f"\U0001f6d2 Product Price: {PRODUCT_PRICE} BDT / unit.\n"
+        f"Please enter the quantity you wish to purchase (e.g., 5):"
+    )
+    context.user_data["awaiting_product_qty"] = True
+
+async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("awaiting_product_qty"):
+        return False
+    text = (update.message.text or "").strip()
+    if not text.isdigit():
+        await update.message.reply_text("\u26a0\ufe0f Please enter a valid number (e.g., 5). Send /cancel to abort.")
+        return True
+    qty = int(text)
+    if qty <= 0:
+        await update.message.reply_text("\u26a0\ufe0f Quantity must be > 0.")
+        return True
+    if qty > 1000:
+        await update.message.reply_text("\u26a0\ufe0f Max 1000 per order. Contact support for larger orders.")
+        return True
+    context.user_data.pop("awaiting_product_qty", None)
+    user = update.effective_user
+    if db.is_banned(user.id):
+        await update.message.reply_text("\U0001f6ab You are banned.")
+        return True
+    total_cost = round(qty * PRODUCT_PRICE, 2)
+    # Check balance
+    bal = db.get_bdt_balance(user.id)
+    if bal < total_cost - 1e-9:
+        await update.message.reply_text(f"\u26a0\ufe0f Insufficient Main Balance! Required: {total_cost} BDT. Your Balance: {bal} BDT. Please deposit BDT first.")
+        return True
+    # Check stock via Google Sheets
+    await update.message.reply_text(f"\u23f3 Checking stock for {qty} item(s)...")
+    try:
+        import sheets
+        available = sheets.count_available()
+    except Exception as e:
+        logger.error("Sheets count failed: %s", e, exc_info=True)
+        await update.message.reply_text("\u26a0\ufe0f Stock check failed. Please try again later or contact support. (Google Sheets not configured?)")
+        return True
+    if available < qty:
+        await update.message.reply_text(f"\u26a0\ufe0f Low Stock! Only {available} item(s) currently available.")
+        return True
+    # Deduct balance first (atomic), then allocate sheet; refund on sheet failure
+    new_bal = db.deduct_bdt_for_purchase(user.id, total_cost)
+    if new_bal is None:
+        await update.message.reply_text(f"\u26a0\ufe0f Insufficient Main Balance! Required: {total_cost} BDT. Your Balance: {bal} BDT.")
+        return True
+    # Allocate sheet
+    username = user.username or str(user.id)
+    try:
+        import sheets
+        items = await sheets.allocate_items(username, qty)
+    except ValueError as ve:
+        # insufficient stock race - refund
+        db.refund_bdt_purchase(user.id, total_cost)
+        await update.message.reply_text(f"\u26a0\ufe0f {ve}")
+        return True
+    except Exception as e:
+        db.refund_bdt_purchase(user.id, total_cost)
+        logger.error("Sheets allocate failed: %s", e, exc_info=True)
+        await update.message.reply_text("\u26a0\ufe0f Allocation failed. Your balance was refunded. Please try again.")
+        return True
+    # Generate Excel
+    import tempfile, os
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from datetime import datetime, timezone
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Order"
+        ws["A1"] = "Sl No."
+        ws["B1"] = "Product Data / Key"
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        for idx, item in enumerate(items, start=1):
+            ws.cell(row=idx+1, column=1, value=idx)
+            ws.cell(row=idx+1, column=2, value=item)
+        ws.column_dimensions["A"].width = 10
+        ws.column_dimensions["B"].width = 50
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        safe_user = (username.lstrip("@") or str(user.id)).replace("/", "_")[:20]
+        fname = f"Order_{safe_user}_{ts}.xlsx"
+        tmp_path = os.path.join(tempfile.gettempdir(), fname)
+        wb.save(tmp_path)
+        # Send
+        await update.message.reply_text(f"\U0001f389 Purchase Successful!\n\U0001f4e6 Quantity: {qty} item(s)\n\U0001f4b0 Total Charged: {total_cost} BDT\n\U0001f4b3 Remaining BDT Balance: {new_bal} BDT\n\n\U0001f4c4 Your product file has been attached below.")
+        await context.bot.send_document(chat_id=update.effective_chat.id, document=open(tmp_path, "rb"), filename=fname)
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+    except Exception as e:
+        # refund if excel/send failed? Stock already allocated - do not refund stock, but log
+        logger.error("Excel/send failed: %s", e, exc_info=True)
+        await update.message.reply_text("\u26a0\ufe0f Order allocated but file delivery failed. Contact support with your order quantity.")
+    return True
 
 async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_deposit_state(context)
+    _clear_product_state(context)
     await update.message.reply_text(f"\U0001f4de Support: {SUPPORT_LINK}\nContact admin for help.")
 
 # -- Deposit Flow (bKash / Nagad) ---------------------------
@@ -318,6 +427,7 @@ async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
     _clear_deposit_state(context)
+    _clear_product_state(context)
     context.user_data.pop("awaiting_submission", None)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001f338 bKash", callback_data="dep_method:bkash"),
@@ -435,10 +545,14 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     return False
 
 
-# -- Catch-all for submissions + deposit ----------------------
+# -- Catch-all for submissions + deposit + products -----------
 
 async def catch_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # deposit flow has priority
+    if context.user_data.get("awaiting_product_qty"):
+        handled = await handle_product_quantity(update, context)
+        if handled:
+            return
+    # deposit flow has priority over submissions
     if context.user_data.get("deposit_step"):
         handled = await handle_deposit_text(update, context)
         if handled:

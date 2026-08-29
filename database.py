@@ -304,15 +304,32 @@ def set_last_nid(user_id: int):
 
 # -- Wallet / Deposits ----------------------------------------
 
-def get_bdt_balance(user_id: int) -> int:
+def get_bdt_balance(user_id: int) -> float:
     with get_conn() as conn:
         row = conn.execute("SELECT bdt_balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if not row:
-            return 0
+            return 0.0
         try:
-            return int(row["bdt_balance"] or 0)
+            return float(row["bdt_balance"] or 0)
         except Exception:
-            return 0
+            return 0.0
+
+def deduct_bdt_for_purchase(user_id: int, total_cost: float) -> float | None:
+    """Atomically deduct BDT for product purchase. Returns new balance or None if insufficient."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT bdt_balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        cur = float(row["bdt_balance"] or 0) if row else 0.0
+        if cur < total_cost - 1e-9:
+            return None
+        new_bal = cur - total_cost
+        conn.execute("UPDATE users SET bdt_balance = ? WHERE user_id = ?", (new_bal, user_id))
+        # log as bdt purchase
+        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'bdt_purchase', 0, ?)", (user_id, int(total_cost) if total_cost.is_integer() else total_cost, _now()))
+        return new_bal
+
+def refund_bdt_purchase(user_id: int, total_cost: float):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET bdt_balance = COALESCE(bdt_balance,0)+? WHERE user_id = ?", (total_cost, user_id))
 
 def create_deposit(user_id: int, username: str | None, method: str, amount: int, trx_id: str) -> int:
     with get_conn() as conn:
