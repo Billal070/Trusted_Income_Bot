@@ -5,17 +5,18 @@ User Bot - the bot regular users interact with.
 import io
 import logging
 import telegram
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
 
 import database as db
-from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID
+from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID, BKASH_NUMBER, NAGAD_NUMBER, SUPPORT_LINK
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +45,12 @@ async def notify_user_credit_change(user_id: int, amount: int, action: str, new_
 
 
 # -- Keyboard --------------------------------------------------
-
+# NOTE: Product delivery paused until wallet/deposit system live — Products shows placeholder.
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("\U0001f4b3Get Nid"), KeyboardButton("\U0001f4dd Submit Job")],
-        [KeyboardButton("\U0001f4b0 Balance")],
+        [KeyboardButton("\U0001f4b0 Balance"), KeyboardButton("\U0001f4b3 Deposit")],
+        [KeyboardButton("\U0001f6cd\ufe0f Products"), KeyboardButton("\U0001f4de Support")],
     ],
     resize_keyboard=True,
 )
@@ -265,20 +267,136 @@ async def _relay_submission(user, content_type: str, content: str, user_caption:
         logger.warning("Relay submission failed: %s", e, exc_info=True)
 
 
-# -- Balance ---------------------------------------------------
+# -- Balance (Credits + BDT) ----------------------------------
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if db.is_banned(user_id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
-    credits = db.get_credits(user_id)
-    await update.message.reply_text(f"\U0001f4b0 Your current balance: {credits} credits")
+    u = db.get_user(user_id)
+    credits = u["credits"] if u else 0
+    bdt = db.get_bdt_balance(user_id)
+    # 1 Credit = 1 BDT
+    username = f"@{update.effective_user.username}" if update.effective_user.username else f"ID:{user_id}"
+    await update.message.reply_text(
+        f"\U0001f464 User: {username}\n"
+        f"\U0001f194 ID: {user_id}\n"
+        f"\U0001fa99 Current Credits: {credits}\n"
+        f"\u09f3 BDT Stats: {bdt} BDT"
+    )
+
+# -- Products / Support (placeholders) ------------------------
+
+async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("\U0001f6cd\ufe0f Product store will be available soon!")
+
+async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"\U0001f4de Support: {SUPPORT_LINK}\nContact admin for help.")
+
+# -- Deposit Flow (bKash / Nagad) ---------------------------
+
+async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if db.is_banned(update.effective_user.id):
+        await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
+        return
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("\U0001f338 bKash", callback_data="dep_method:bkash"),
+         InlineKeyboardButton("\U0001f7e0 Nagad", callback_data="dep_method:nagad")],
+    ])
+    await update.message.reply_text("\U0001f4b3 Select payment method:", reply_markup=keyboard)
+
+async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if not data.startswith("dep_method:"):
+        return
+    method = data.split(":")[1]  # bkash / nagad
+    pretty = "bKash" if method == "bkash" else "Nagad"
+    number = BKASH_NUMBER if method == "bkash" else NAGAD_NUMBER
+    # store method choice
+    context.user_data["deposit_method"] = method
+    context.user_data["deposit_step"] = "await_amount"
+    await query.edit_message_text(
+        f"\u2705 Selected: {pretty}\n\n"
+        f"Please send money to:\n`{number}` ({pretty})\n\n"
+        f"Then submit:\n1️⃣ Amount in BDT (numbers only)\n"
+        f"After that you will be asked for TrxID.",
+        parse_mode="Markdown"
+    )
+    await query.message.reply_text(f"Enter amount in BDT for {pretty}:")
+
+async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    step = context.user_data.get("deposit_step")
+    if not step:
+        return False
+    text = (update.message.text or "").strip()
+    user = update.effective_user
+    method = context.user_data.get("deposit_method")
+
+    if step == "await_amount":
+        if not text.isdigit():
+            await update.message.reply_text("\u26a0\ufe0f Please enter amount as numbers only (e.g. 500).")
+            return True
+        amount = int(text)
+        if amount <= 0:
+            await update.message.reply_text("\u26a0\ufe0f Amount must be > 0.")
+            return True
+        context.user_data["deposit_amount"] = amount
+        context.user_data["deposit_step"] = "await_trxid"
+        pretty = "bKash" if method == "bkash" else "Nagad"
+        await update.message.reply_text(f"Amount: {amount} BDT via {pretty}\nNow send Transaction ID (TrxID):")
+        return True
+
+    if step == "await_trxid":
+        trx = text.strip()
+        if len(trx) < 4:
+            await update.message.reply_text("\u26a0\ufe0f TrxID too short. Please send valid TrxID.")
+            return True
+        amount = context.user_data.get("deposit_amount")
+        pretty = "bKash" if method == "bkash" else "Nagad"
+        username = user.username or ""
+        # create pending deposit
+        dep_id = db.create_deposit(user.id, username, pretty, amount, trx)
+        # clear state
+        context.user_data.pop("deposit_method", None)
+        context.user_data.pop("deposit_amount", None)
+        context.user_data.pop("deposit_step", None)
+        await update.message.reply_text(
+            f"\u23f3 Your deposit request of {amount} BDT via {pretty} (TrxID: {trx}) has been submitted! Waiting for Admin verification."
+        )
+        # Forward to Admin Bot
+        try:
+            ts = db.get_deposit(dep_id)["created_at"] if db.get_deposit(dep_id) else ""
+            admin_text = (
+                f"\U0001f514 **New Deposit Request!**\n"
+                f"\U0001f464 User: @{username or 'N/A'} (ID: {user.id})\n"
+                f"\U0001f4b3 Method: {pretty}\n"
+                f"\U0001f4b0 Amount: {amount} BDT\n"
+                f"\U0001f194 TrxID: {trx}\n"
+                f"\U0001f4c5 Time: {ts}"
+            )
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("\u2705 Approve", callback_data=f"dep_approve:{dep_id}"),
+                 InlineKeyboardButton("\u274c Reject", callback_data=f"dep_reject:{dep_id}")]
+            ])
+            async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
+                await abot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_text, reply_markup=keyboard, parse_mode="Markdown")
+        except Exception as e:
+            logger.error("Forward deposit to admin failed: %s", e, exc_info=True)
+        return True
+    return False
 
 
-# -- Catch-all for submissions ---------------------------------
+# -- Catch-all for submissions + deposit ----------------------
 
 async def catch_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # deposit flow has priority
+    if context.user_data.get("deposit_step"):
+        handled = await handle_deposit_text(update, context)
+        if handled:
+            return
     await handle_submission(update, context)
 
 
@@ -291,8 +409,12 @@ def build_user_bot() -> Application:
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3Get Nid$"), get_pic))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4dd Submit Job$"), submit_job))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b0 Balance$"), balance))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3 Deposit$"), deposit_entry))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Products$"), products))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f4de Support$"), support))
+    app.add_handler(CallbackQueryHandler(deposit_callback, pattern=r"^dep_method:"))
 
-    # Catch text/photo/document that arrive while awaiting a submission
+    # Catch text/photo/document that arrive while awaiting a submission/deposit
     app.add_handler(MessageHandler(
         (filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND,
         catch_submission,

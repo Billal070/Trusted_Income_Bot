@@ -110,6 +110,51 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
+    # --- Deposit verification callbacks ---
+    if data.startswith("dep_approve:") or data.startswith("dep_reject:"):
+        is_approve = data.startswith("dep_approve:")
+        try:
+            dep_id = int(data.split(":")[1])
+        except Exception:
+            return await query.answer("Invalid deposit ID", show_alert=True)
+        await query.answer("Processing..." if is_approve else "Rejecting...")
+        dep = db.get_deposit(dep_id)
+        if not dep:
+            return await query.edit_message_text("\u274c Deposit not found.")
+        if dep["status"] != "pending":
+            return await query.edit_message_text(f"\u26a0\ufe0f Already {dep['status']}.")
+        admin_id = update.effective_user.id
+        if is_approve:
+            res = db.approve_deposit(dep_id, admin_id)
+            if not res:
+                return await query.edit_message_text("\u274c Failed to approve.")
+            # edit admin message
+            try:
+                await query.edit_message_text(f"\u2705 Deposit of {dep['amount']} BDT for @{dep['username'] or dep['user_id']} approved. Credits added.")
+            except Exception:
+                pass
+            # notify user via User Bot
+            try:
+                async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+                    await ubot.send_message(chat_id=dep["user_id"], text=f"\U0001f389 Success! Your deposit of {dep['amount']} BDT has been approved. {dep['amount']} Credits added to your account! \U0001f4b0 Balance: {res['new_credits']} credits")
+            except Exception as e:
+                logger.warning("Notify user approve failed: %s", e)
+            return
+        else:
+            res = db.reject_deposit(dep_id, admin_id)
+            if not res:
+                return await query.edit_message_text("\u274c Failed to reject.")
+            try:
+                await query.edit_message_text("\u274c Request rejected.")
+            except Exception:
+                pass
+            try:
+                async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+                    await ubot.send_message(chat_id=dep["user_id"], text=f"\u26a0\ufe0f Your deposit request of {dep['amount']} BDT (TrxID: {dep['trx_id']}) was rejected. Contact support for help.")
+            except Exception as e:
+                logger.warning("Notify user reject failed: %s", e)
+            return
+
     # --- Manage Users callbacks ---
     if data.startswith("mlist:"):
         await query.answer()

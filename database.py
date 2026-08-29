@@ -89,6 +89,27 @@ def init_db():
             conn.execute("ALTER TABLE users ADD COLUMN last_nid_at TIMESTAMP")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN bdt_balance INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        # Deposits table for wallet system
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS deposits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                method TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                trx_id TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP,
+                verified_at TIMESTAMP,
+                verified_by INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
+            CREATE INDEX IF NOT EXISTS idx_deposits_user ON deposits(user_id);
+        """)
 
 
 # -- User helpers ----------------------------------------------
@@ -279,6 +300,64 @@ def get_cooldown_remaining(user_id: int) -> int:
 def set_last_nid(user_id: int):
     with get_conn() as conn:
         conn.execute("UPDATE users SET last_nid_at = ? WHERE user_id = ?", (_now(), user_id))
+
+
+# -- Wallet / Deposits ----------------------------------------
+
+def get_bdt_balance(user_id: int) -> int:
+    with get_conn() as conn:
+        row = conn.execute("SELECT bdt_balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        if not row:
+            return 0
+        try:
+            return int(row["bdt_balance"] or 0)
+        except Exception:
+            return 0
+
+def create_deposit(user_id: int, username: str | None, method: str, amount: int, trx_id: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO deposits (user_id, username, method, amount, trx_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+            (user_id, username, method, amount, trx_id, _now()),
+        )
+        return cur.lastrowid
+
+def get_deposit(deposit_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM deposits WHERE id = ?", (deposit_id,)).fetchone()
+        return dict(row) if row else None
+
+def get_pending_deposits(limit: int = 20) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM deposits WHERE status='pending' ORDER BY created_at ASC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+def approve_deposit(deposit_id: int, admin_id: int) -> dict | None:
+    """Approve deposit: set status approved, add credits + bdt_balance, log. Returns deposit dict or None."""
+    with get_conn() as conn:
+        dep = conn.execute("SELECT * FROM deposits WHERE id = ? AND status='pending'", (deposit_id,)).fetchone()
+        if not dep:
+            return None
+        dep = dict(dep)
+        amt = int(dep["amount"])
+        uid = dep["user_id"]
+        # ensure user exists
+        conn.execute("UPDATE deposits SET status='approved', verified_at=?, verified_by=? WHERE id=?", (_now(), admin_id, deposit_id))
+        # 1 Credit = 1 BDT
+        conn.execute("UPDATE users SET credits = COALESCE(credits,0)+?, bdt_balance = COALESCE(bdt_balance,0)+? WHERE user_id=?", (amt, amt, uid))
+        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'add', ?, ?)", (uid, amt, admin_id, _now()))
+        row = conn.execute("SELECT credits, bdt_balance FROM users WHERE user_id=?", (uid,)).fetchone()
+        dep["new_credits"] = row["credits"] if row else amt
+        dep["new_bdt"] = row["bdt_balance"] if row and "bdt_balance" in row.keys() else amt
+        return dep
+
+def reject_deposit(deposit_id: int, admin_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM deposits WHERE id=? AND status='pending'", (deposit_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute("UPDATE deposits SET status='rejected', verified_at=?, verified_by=? WHERE id=?", (_now(), admin_id, deposit_id))
+        return dict(row)
 
 
 # -- Photo helpers ---------------------------------------------
