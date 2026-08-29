@@ -365,10 +365,14 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cat = cats[c_idx]; prod = PRODUCT_CATALOG[cat][p_idx]
         except Exception:
             return
-        context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": prod["name"], "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
+        # Strip duplicate price from display name for quantity step: keep raw short name only
+        raw_name = prod["name"]
+        # If name already contains price (e.g. "Fr Outlook - 1.50 BDT"), use it as-is for first line
+        # Do NOT prepend extra emoji — keep exact short name per GLOBAL NAMING RULE
+        context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": raw_name, "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
         context.user_data["awaiting_product_qty"] = True
         await query.edit_message_text(
-            f"\U0001f6d2 <b>{prod['name']}</b>\n\U0001f4b5 <b>Price:</b> <b>{prod['price']} BDT / Unit</b>\n\n\U0001f522 <b>Enter Quantity:</b>",
+            f"<b>{raw_name}</b>\n<b>\U0001f4b0 {prod['price']} BDT / Unit</b>\n\n<b>\U0001f522 Enter Quantity:</b>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]])
         )
