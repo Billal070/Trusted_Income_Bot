@@ -348,7 +348,7 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = p['name'] if "BDT" in p['name'] else f"{p['name']} - {p['price']} BDT"
             rows.append([InlineKeyboardButton(label, callback_data=f"prod_item:{idx}:{i}")])
         rows.append([InlineKeyboardButton("\u2b05 Back", callback_data="prod_back")])
-        await query.edit_message_text(f"\U0001f4e6 <b>{cat}</b>\nPlease select a product below:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
+        await query.edit_message_text(f"<b>{cat}</b>\n\nPlease select a product below:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
         return
     if data == "prod_back":
         cats = list(PRODUCT_CATALOG.keys())
@@ -371,8 +371,13 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Do NOT prepend extra emoji — keep exact short name per GLOBAL NAMING RULE
         context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": raw_name, "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
         context.user_data["awaiting_product_qty"] = True
+        quantity_text = (
+            f"<b>[Fr Outlook]</b>\n"
+            f"\U0001f4b0 <b>{prod['price']} BDT / Unit</b>\n\n"
+            f"\U0001f522 <b>Enter Quantity:</b>"
+        )
         await query.edit_message_text(
-            f"<b>{raw_name}</b>\n<b>\U0001f4b0 {prod['price']} BDT / Unit</b>\n\n<b>\U0001f522 Enter Quantity:</b>",
+            quantity_text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]])
         )
@@ -491,10 +496,10 @@ async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_
     # Fixed format: Order Summary + 1 standard line then details, using short_name
     summary = (
         f"\U0001f4e9 <b>Order Summary</b>\n"
-        f"\u26a1 <b>Product   : {sel.get('short_name', sel['name'])}</b>\n"
+        f"\u26a1 <b>Product   : [Fr Outlook]</b>\n"
         f"\U0001faa1 <b>Quantity  : {qty}</b>\n"
-        f"\U0001f4b0 <b>Total     : {total} BDT</b>\n"
-        f"\U0001f45b <b>Balance   : {bal} BDT</b>"
+        f"\U0001f4b0 <b>Total     : {total:.2f} BDT</b>\n"
+        f"\U0001f45b <b>Balance   : {bal:.2f} BDT</b>"
     )
     await update.message.reply_text(summary, parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u2705 Confirm Order", callback_data="prod_confirm"), InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]]))
