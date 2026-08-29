@@ -470,6 +470,38 @@ def get_credit_summary(user_id: int) -> dict:
         ).fetchone()["s"]
         return {"added": added, "deducted": deducted}
 
+# -- E-commerce metrics (strict separation, no deduct stats in UI) --
+
+def get_total_spent() -> float:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COALESCE(SUM(amount),0) as s FROM credit_logs WHERE action='bdt_purchase'").fetchone()
+        return float(row["s"] or 0)
+
+def get_lifetime_deposits_total() -> float:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COALESCE(SUM(amount),0) as s FROM deposits WHERE status='approved'").fetchone()
+        return float(row["s"] or 0)
+
+def get_total_credit_added() -> float:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COALESCE(SUM(amount),0) as s FROM credit_logs WHERE action='add'").fetchone()
+        return float(row["s"] or 0)
+
+def get_user_spent(user_id: int) -> float:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COALESCE(SUM(amount),0) as s FROM credit_logs WHERE user_id=? AND action='bdt_purchase'", (user_id,)).fetchone()
+        return float(row["s"] or 0)
+
+def get_user_lifetime_deposits(user_id: int) -> float:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COALESCE(SUM(amount),0) as s FROM deposits WHERE user_id=? AND status='approved'", (user_id,)).fetchone()
+        return float(row["s"] or 0)
+
+def get_user_total_credit_added(user_id: int) -> float:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COALESCE(SUM(amount),0) as s FROM credit_logs WHERE user_id=? AND action='add'", (user_id,)).fetchone()
+        return float(row["s"] or 0)
+
 
 # -- Stats -----------------------------------------------------
 

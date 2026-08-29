@@ -81,17 +81,32 @@ async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not user:
         return await update.message.reply_text("\u274c User not found.")
 
-    status = "Active" if not user["is_banned"] else "Banned"
-    bdt = db.get_bdt_balance(user["user_id"])
+    target_user_id = user["user_id"]
+    target_username = user["username"] or "N/A"
+    target_name = user["first_name"] or "N/A"
+    user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+    status_emoji = "Active \u2705" if not user["is_banned"] else "Banned \U0001f6ab"
+    total_submissions = db.get_submission_count(target_user_id)
+    total_spent = db.get_user_spent(target_user_id)
+    lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
+    total_credit_added = db.get_user_total_credit_added(target_user_id)
+    join_date = user["joined_at"] or "N/A"
     text = (
-        f"\U0001f464 User Info\n"
-        f"ID: {user['user_id']}\n"
-        f"Username: @{user['username'] or 'N/A'}\n"
-        f"\U0001fa99 Credits: {user['credits']}\n"
-        f"\u09f3 Main Balance: {bdt} BDT\n"
-        f"Status: {status}"
+        f"\U0001f464 <b>User Details</b>\n"
+        f"<b>ID:</b> <code>{target_user_id}</code>\n"
+        f"<b>Username:</b> @{target_username}\n"
+        f"<b>Name:</b> {target_name}\n"
+        f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+        f"<b>Status:</b> {status_emoji}\n"
+        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
+        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+        f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
+        f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
+        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\U0001f4c5 <b>Joined:</b> {join_date}"
     )
-    uid = user["user_id"]
+    uid = target_user_id
     ban_label = "\u2705 Unban" if user["is_banned"] else "\U0001f6ab Ban"
     keyboard = InlineKeyboardMarkup([
         [
@@ -100,7 +115,7 @@ async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         ],
         [InlineKeyboardButton(ban_label, callback_data=f"toggleban:{uid}")],
     ])
-    await update.message.reply_text(text, reply_markup=keyboard)
+    await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 # -- Inline callbacks: Add / Deduct / Ban ---------------------
@@ -290,17 +305,30 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             summary = db.get_credit_summary(uid)
             bdt = db.get_bdt_balance(uid)
             status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+            target_user_id = u["user_id"]
+            target_username = u["username"] or "N/A"
+            target_name = u["first_name"] or "N/A"
+            user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+            status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+            total_submissions = db.get_submission_count(target_user_id)
+            total_spent = db.get_user_spent(target_user_id)
+            lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
+            total_credit_added = db.get_user_total_credit_added(target_user_id)
+            join_date = u["joined_at"] or "N/A"
             text = (
-                f"\U0001f464 User Details\n"
-                f"ID: {u['user_id']}\n"
-                f"Username: @{u['username'] or 'N/A'}\n"
-                f"Name: {u['first_name'] or 'N/A'}\n"
-                f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
-                f"Status: {status}\n"
-                f"\U0001f4dd Total Submissions: {sub_count}\n"
-                f"\u2795 Total Added: {summary['added']} credits\n"
-                f"\u2796 Total Deducted: {summary['deducted']} credits\n"
-                f"Joined: {u['joined_at'] or 'N/A'}"
+                f"\U0001f464 <b>User Details</b>\n"
+                f"<b>ID:</b> <code>{target_user_id}</code>\n"
+                f"<b>Username:</b> @{target_username}\n"
+                f"<b>Name:</b> {target_name}\n"
+                f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+                f"<b>Status:</b> {status_emoji}\n"
+                f"\u2501????????????????????\n"
+                f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
+                f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+                f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
+                f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
+                f"\u2501????????????????????\n"
+                f"\U0001f4c5 <b>Joined:</b> {join_date}"
             )
             ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
             keyboard = InlineKeyboardMarkup([
@@ -309,7 +337,7 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                 [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
                 [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
             ])
-            await update.message.reply_text(text, reply_markup=keyboard)
+            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
     elif action == "awaiting_mdeduct":
         try:
             page = int(parts[2]) if len(parts) > 2 else 0
@@ -325,17 +353,30 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             summary = db.get_credit_summary(uid)
             bdt = db.get_bdt_balance(uid)
             status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+            target_user_id = u["user_id"]
+            target_username = u["username"] or "N/A"
+            target_name = u["first_name"] or "N/A"
+            user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+            status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+            total_submissions = db.get_submission_count(target_user_id)
+            total_spent = db.get_user_spent(target_user_id)
+            lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
+            total_credit_added = db.get_user_total_credit_added(target_user_id)
+            join_date = u["joined_at"] or "N/A"
             text = (
-                f"\U0001f464 User Details\n"
-                f"ID: {u['user_id']}\n"
-                f"Username: @{u['username'] or 'N/A'}\n"
-                f"Name: {u['first_name'] or 'N/A'}\n"
-                f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
-                f"Status: {status}\n"
-                f"\U0001f4dd Total Submissions: {sub_count}\n"
-                f"\u2795 Total Added: {summary['added']} credits\n"
-                f"\u2796 Total Deducted: {summary['deducted']} credits\n"
-                f"Joined: {u['joined_at'] or 'N/A'}"
+                f"\U0001f464 <b>User Details</b>\n"
+                f"<b>ID:</b> <code>{target_user_id}</code>\n"
+                f"<b>Username:</b> @{target_username}\n"
+                f"<b>Name:</b> {target_name}\n"
+                f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+                f"<b>Status:</b> {status_emoji}\n"
+                f"\u2501????????????????????\n"
+                f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
+                f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+                f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
+                f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
+                f"\u2501????????????????????\n"
+                f"\U0001f4c5 <b>Joined:</b> {join_date}"
             )
             ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
             keyboard = InlineKeyboardMarkup([
@@ -344,7 +385,7 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                 [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
                 [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
             ])
-            await update.message.reply_text(text, reply_markup=keyboard)
+            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
     context.user_data["admin_state"] = None
 
@@ -412,19 +453,17 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
-        return await update.message.reply_text("\u26d4 Unauthorized.")
-    s = db.get_stats()
-    pending_deps = len(db.get_pending_deposits(limit=1000))
-    text = (
-        f"\U0001f4ca Bot Statistics\n\n"
-        f"\U0001f465 Total Users: {s['total_users']}\n"
-        f"\U0001f4b0 Credits in Circulation: {s['total_credits']}\n"
-        f"\U0001f4f7 Photos Available: {s['photos_available']}\n"
-        f"\U0001f4e4 Photos Sent: {s['photos_sent']}\n"
-        f"\U0001f4dd Pending Submissions: {s['pending_submissions']}\n"
-        f"\U0001f4b3 Pending Deposits: {pending_deps}"
+        return await update.message.reply_text("\u26d4 Unauthorized.", parse_mode="HTML")
+    total_spent = db.get_total_spent()
+    lifetime_deposits = db.get_lifetime_deposits_total()
+    total_credit_added = db.get_total_credit_added()
+    stats_message = (
+        f"\U0001f4ca <b>Bot Statistics</b>\n\n"
+        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> {total_spent:.2f} BDT\n"
+        f"\U0001f4b3 <b>Lifetime deposits:</b> {lifetime_deposits:.2f} BDT\n"
+        f"\U0001f4b0 <b>Total Credit Added:</b> {total_credit_added:.2f} BDT"
     )
-    await update.message.reply_text(text)
+    await update.message.reply_text(stats_message, parse_mode="HTML")
 
 
 # -- 👥 Manage Users (paginated) ---------------------------------
@@ -481,7 +520,7 @@ async def manage_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         except telegram.error.BadRequest:
             pass
     else:
-        await update.message.reply_text(text, reply_markup=keyboard)
+        await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 async def manage_users_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
@@ -492,21 +531,30 @@ def _user_detail_text(uid: int) -> tuple[str, InlineKeyboardMarkup]:
     u = db.get_user(uid)
     if not u:
         return "\u274c User not found.", InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data="mlist:0")]])
-    sub_count = db.get_submission_count(uid)
-    summary = db.get_credit_summary(uid)
-    bdt = db.get_bdt_balance(uid)
-    status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+    target_user_id = u["user_id"]
+    target_username = u["username"] or "N/A"
+    target_name = u["first_name"] or "N/A"
+    user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+    status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+    total_submissions = db.get_submission_count(target_user_id)
+    total_spent = db.get_user_spent(target_user_id)
+    lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
+    total_credit_added = db.get_user_total_credit_added(target_user_id)
+    join_date = u["joined_at"] or "N/A"
     text = (
-        f"\U0001f464 User Details\n"
-        f"ID: {u['user_id']}\n"
-        f"Username: @{u['username'] or 'N/A'}\n"
-        f"Name: {u['first_name'] or 'N/A'}\n"
-        f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
-        f"Status: {status}\n"
-        f"\U0001f4dd Total Submissions: {sub_count}\n"
-        f"\u2795 Total Added: {summary['added']} credits\n"
-        f"\u2796 Total Deducted: {summary['deducted']} credits\n"
-        f"Joined: {u['joined_at'] or 'N/A'}"
+        f"\U0001f464 <b>User Details</b>\n"
+        f"<b>ID:</b> <code>{target_user_id}</code>\n"
+        f"<b>Username:</b> @{target_username}\n"
+        f"<b>Name:</b> {target_name}\n"
+        f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+        f"<b>Status:</b> {status_emoji}\n"
+        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
+        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+        f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
+        f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
+        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\U0001f4c5 <b>Joined:</b> {join_date}"
     )
     ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
     # we encode originating page in callback so Back returns there; default 0
@@ -525,21 +573,30 @@ async def show_user_detail(query: CallbackQuery, uid: int, page: int):
     u = db.get_user(uid)
     if not u:
         return await query.edit_message_text("\u274c User not found.")
-    sub_count = db.get_submission_count(uid)
-    summary = db.get_credit_summary(uid)
-    bdt = db.get_bdt_balance(uid)
-    status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+    target_user_id = u["user_id"]
+    target_username = u["username"] or "N/A"
+    target_name = u["first_name"] or "N/A"
+    user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+    status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
+    total_submissions = db.get_submission_count(target_user_id)
+    total_spent = db.get_user_spent(target_user_id)
+    lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
+    total_credit_added = db.get_user_total_credit_added(target_user_id)
+    join_date = u["joined_at"] or "N/A"
     text = (
-        f"\U0001f464 User Details\n"
-        f"ID: {u['user_id']}\n"
-        f"Username: @{u['username'] or 'N/A'}\n"
-        f"Name: {u['first_name'] or 'N/A'}\n"
-        f"\U0001fa99 Credits: {u['credits']} | \u09f3 Main Balance: {bdt} BDT\n"
-        f"Status: {status}\n"
-        f"\U0001f4dd Total Submissions: {sub_count}\n"
-        f"\u2795 Total Added: {summary['added']} credits\n"
-        f"\u2796 Total Deducted: {summary['deducted']} credits\n"
-        f"Joined: {u['joined_at'] or 'N/A'}"
+        f"\U0001f464 <b>User Details</b>\n"
+        f"<b>ID:</b> <code>{target_user_id}</code>\n"
+        f"<b>Username:</b> @{target_username}\n"
+        f"<b>Name:</b> {target_name}\n"
+        f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+        f"<b>Status:</b> {status_emoji}\n"
+        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
+        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+        f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
+        f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
+        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\U0001f4c5 <b>Joined:</b> {join_date}"
     )
     ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
     keyboard = InlineKeyboardMarkup([
@@ -550,7 +607,7 @@ async def show_user_detail(query: CallbackQuery, uid: int, page: int):
         [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
         [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
     ])
-    await query.edit_message_text(text, reply_markup=keyboard)
+    await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 # -- Photo auto-add --------------------------------------------
@@ -696,7 +753,7 @@ async def deposits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("\u274c Reject", callback_data=f"dep_reject:{dep['id']}")]
         ])
         try:
-            await update.message.reply_text(text, reply_markup=keyboard)
+            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
         except Exception as e:
             logger.warning("Send pending deposit %s failed: %s", dep['id'], e)
 
