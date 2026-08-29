@@ -85,6 +85,10 @@ def init_db():
             conn.execute("ALTER TABLE submissions ADD COLUMN caption TEXT")
         except Exception:
             pass
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN last_nid_at TIMESTAMP")
+        except Exception:
+            pass
 
 
 # -- User helpers ----------------------------------------------
@@ -248,6 +252,33 @@ def get_credits(user_id: int) -> int:
     with get_conn() as conn:
         row = conn.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,)).fetchone()
         return row["credits"] if row else 0
+
+
+# -- Cooldown (2m30s) -------------------------------------------
+
+NID_COOLDOWN = 150  # seconds = 2*60+30
+
+def get_cooldown_remaining(user_id: int) -> int:
+    """Returns seconds remaining on Get Nid cooldown, 0 if ready."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT last_nid_at FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        if not row or not row["last_nid_at"]:
+            return 0
+        try:
+            last = datetime.fromisoformat(row["last_nid_at"])
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+        except Exception:
+            return 0
+        now = datetime.now(timezone.utc)
+        elapsed = (now - last).total_seconds()
+        remaining = NID_COOLDOWN - elapsed
+        return int(remaining) if remaining > 0 else 0
+
+
+def set_last_nid(user_id: int):
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET last_nid_at = ? WHERE user_id = ?", (_now(), user_id))
 
 
 # -- Photo helpers ---------------------------------------------

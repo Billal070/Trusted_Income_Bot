@@ -83,6 +83,13 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["getting_nid"] = True
 
     try:
+        # 2m30s cooldown after last successful Get Nid
+        remaining = db.get_cooldown_remaining(user_id)
+        if remaining > 0:
+            mins, secs = divmod(remaining, 60)
+            await update.message.reply_text(f"\u23f3 Please wait {mins}m {secs}s before next Get Nid. Cooldown: 2m30s after each successful delivery.")
+            return
+
         credits = db.get_credits(user_id)
         if credits < 1:
             await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
@@ -110,6 +117,12 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Try direct file_id first (fast path for already-converted photos)
         try:
             await update.message.reply_photo(photo=file_id, caption=caption)
+            db.set_last_nid(user_id)
+            # Send countdown notice
+            try:
+                await update.message.reply_text(f"\u23f3 Next Get Nid available in 2m 30s. Cooldown active.")
+            except Exception:
+                pass
             return
         except telegram.error.BadRequest as e:
             logger.warning("Get Nid direct file_id failed photo %s: %s — fallback", photo_id, e)
@@ -138,6 +151,11 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     if sent.photo:
                         db.update_photo_file_id(photo_id, sent.photo[-1].file_id)
+                except Exception:
+                    pass
+                db.set_last_nid(user_id)
+                try:
+                    await update.message.reply_text(f"\u23f3 Next Get Nid available in 2m 30s. Cooldown active.")
                 except Exception:
                     pass
                 return
