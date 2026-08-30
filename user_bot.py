@@ -373,7 +373,7 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": raw_name, "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
         context.user_data["awaiting_product_qty"] = True
         quantity_text = (
-            f"<b>\U0001f4e7 Fr Outlook</b>\n"
+            f"<b>[Fr Outlook]</b>\n"
             f"\U0001f4b0 <b>{prod['price']} BDT / Unit</b>\n\n"
             f"\U0001f522 <b>Enter Quantity:</b>"
         )
@@ -511,8 +511,8 @@ async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["pending_order"] = {"name": sel["name"], "sheet": sel["sheet"], "price": float(sel["price"]), "qty": qty, "total": total}
     # Fixed format: Order Summary + 1 standard line then details, using short_name
     summary = (
-        f"\U0001f4e9 <b>Order Summary</b>\n\n"
-        f"\u26a1 <b>Product   : \U0001f4e7 Fr Outlook</b>\n"
+        f"\U0001f4e9 <b>Order Summary</b>\n"
+        f"\u26a1 <b>Product   : [Fr Outlook]</b>\n"
         f"\U0001faa1 <b>Quantity  : {qty}</b>\n"
         f"\U0001f4b0 <b>Total     : {total:.2f} BDT</b>\n"
         f"\U0001f45b <b>Balance   : {bal:.2f} BDT</b>"
