@@ -464,7 +464,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return await update.message.reply_text("\u26d4 Unauthorized.", parse_mode="HTML")
     s = db.get_stats()
-    pending_deps = len(db.get_pending_deposits(limit=1000))
+    total_submissions = db.count_total_submissions()
+    successful_deposits = db.count_successful_deposits()
     total_spent = db.get_total_spent()
     lifetime_deposits = db.get_lifetime_deposits_total()
     total_credit_added = db.get_total_credit_added()
@@ -474,8 +475,8 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\U0001f4b0 <b>Credits in Circulation:</b> <b>{s['total_credits']}</b>\n"
         f"\U0001f4f7 <b>Nid Available:</b> <b>{s['photos_available']}</b>\n"
         f"\U0001f4e4 <b>Nid Sent:</b> <b>{s['photos_sent']}</b>\n"
-        f"\U0001f4dd <b>Pending Submissions:</b> <b>{s['pending_submissions']}</b>\n"
-        f"\U0001f4b3 <b>Pending Deposits:</b> <b>{pending_deps}</b>\n"
+        f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
+        f"\u2705 <b>Successful Deposits:</b> <b>{successful_deposits}</b>\n"
         f"\U0001f6cd\ufe0f <b>Spent in Products:</b> <b>{total_spent:.2f} BDT</b>\n"
         f"\U0001f4b3 <b>Lifetime Deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
         f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>"

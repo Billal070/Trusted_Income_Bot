@@ -437,6 +437,14 @@ def get_pending_submissions() -> list[dict]:
         rows = conn.execute("SELECT * FROM submissions WHERE status = 'pending' ORDER BY submitted_at ASC").fetchall()
         return [dict(r) for r in rows]
 
+def count_total_submissions() -> int:
+    with get_conn() as conn:
+        return conn.execute("SELECT COUNT(*) as c FROM submissions").fetchone()["c"]
+
+def count_successful_deposits() -> int:
+    with get_conn() as conn:
+        return conn.execute("SELECT COUNT(*) as c FROM deposits WHERE status='approved'").fetchone()["c"]
+
 
 # -- Paginated users + per-user stats -------------------------
 
