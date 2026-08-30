@@ -458,19 +458,27 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text(result)
 
 
-# -- Stats -----------------------------------------------------
+# -- Stats (Full Bot Info) -----------------------------------
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return await update.message.reply_text("\u26d4 Unauthorized.", parse_mode="HTML")
+    s = db.get_stats()
+    pending_deps = len(db.get_pending_deposits(limit=1000))
     total_spent = db.get_total_spent()
     lifetime_deposits = db.get_lifetime_deposits_total()
     total_credit_added = db.get_total_credit_added()
     stats_message = (
         f"\U0001f4ca <b>Bot Statistics</b>\n\n"
-        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> {total_spent:.2f} BDT\n"
-        f"\U0001f4b3 <b>Lifetime deposits:</b> {lifetime_deposits:.2f} BDT\n"
-        f"\U0001f4b0 <b>Total Credit Added:</b> {total_credit_added:.2f} BDT"
+        f"\U0001f465 <b>Total Users:</b> <b>{s['total_users']}</b>\n"
+        f"\U0001f4b0 <b>Credits in Circulation:</b> <b>{s['total_credits']}</b>\n"
+        f"\U0001f4f7 <b>Nid Available:</b> <b>{s['photos_available']}</b>\n"
+        f"\U0001f4e4 <b>Nid Sent:</b> <b>{s['photos_sent']}</b>\n"
+        f"\U0001f4dd <b>Pending Submissions:</b> <b>{s['pending_submissions']}</b>\n"
+        f"\U0001f4b3 <b>Pending Deposits:</b> <b>{pending_deps}</b>\n"
+        f"\U0001f6cd\ufe0f <b>Spent in Products:</b> <b>{total_spent:.2f} BDT</b>\n"
+        f"\U0001f4b3 <b>Lifetime Deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
+        f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>"
     )
     await update.message.reply_text(stats_message, parse_mode="HTML")
 
