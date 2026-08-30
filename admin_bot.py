@@ -137,17 +137,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         enabled = (data == "maint_on")
         db.set_maintenance(enabled)
         state_label = "ON" if enabled else "OFF"
-        status_text = "\u2705 <b>Status: ON</b> (users are blocked)" if enabled else "\u26ab <b>Status: OFF</b> (users can use the bot)"
-        button_text = "\U0001f7e2 Turn OFF Maintenance" if enabled else "\U0001f534 Turn ON Maintenance"
+        status_text = "<b>\U0001f6a7 Maintenance Status: " + state_label + "</b>"
+        button_text = "\U0001f534 Turn OFF" if enabled else "\U0001f7e2 Turn ON"
         cb = "maint_off" if enabled else "maint_on"
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=cb)]])
         try:
-            await query.edit_message_text(
-                f"\U0001f6a7 <b>Maintenance Mode</b>\n\n{status_text}\n\n"
-                f"<b>Maintenance Mode set to: {state_label}</b>\n\n"
-                f"Tap the toggle below to change status:",
-                reply_markup=keyboard, parse_mode="HTML"
-            )
+            await query.edit_message_text(status_text, reply_markup=keyboard, parse_mode="HTML")
         except Exception:
             pass
         return
@@ -511,15 +506,12 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def maintenance_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return await update.message.reply_text("\u26d4 Unauthorized.")
-    # Toggle the flag directly
-    enabled = not db.is_maintenance()
-    db.set_maintenance(enabled)
-    state_label = "ON" if enabled else "OFF"
-    reply = (
-        f"<b>\U0001f6a7 Maintenance Mode set to: {state_label}</b>\n\n"
-        + ("\U0001f534 Users are currently blocked from using the bot." if enabled else "\u2705 Users can use the bot normally.")
-    )
-    await update.message.reply_text(reply, parse_mode="HTML")
+    on = db.is_maintenance()
+    status_text = "<b>\U0001f6a7 Maintenance Status: ON</b>" if on else "<b>\U0001f6a7 Maintenance Status: OFF</b>"
+    button_text = "\U0001f534 Turn OFF" if on else "\U0001f7e2 Turn ON"
+    cb = "maint_off" if on else "maint_on"
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=cb)]])
+    await update.message.reply_text(status_text, reply_markup=keyboard, parse_mode="HTML")
 
 
 # -- 👥 Manage Users (paginated) ---------------------------------
