@@ -559,7 +559,7 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["deposit_step"] = "WAITING_FOR_AMOUNT"
         text = (
             f"<b>{meta['icon']} {meta['name']} Payment</b>\n\n"
-            f"<b>Type the amount you want to add (BDT):</b>\n"
+            f"<b>Enter Deposit Amount in BDT:</b>\n"
             f"<i>(Minimum Deposit: 20 BDT)</i>"
         )
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
@@ -578,7 +578,7 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         meta = GATEWAY_META.get(method, GATEWAY_META["bkash"])
         context.user_data["deposit_step"] = "WAITING_FOR_TRXID"
         text = (
-            f"<b>\U0001f4cd Submit Transaction ID</b>\n\n"
+            f"<b>\U0001f4cd Submit Transaction Key</b>\n\n"
             f"<b>Target Amount: {amt:.2f} BDT via {meta['name']}</b>\n\n"
             f"<b>Enter your SMS Transaction ID below:</b>\n"
             f"<i>(Example format: 9A8B7C6D5E)</i>"
@@ -617,13 +617,13 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data["deposit_step"] = "WAITING_FOR_PAID_CLICK"
         text = (
             f"<b>\U0001f4e5 Transfer Instructions ({meta['name']})</b>\n\n"
-            f"<b>Please Cash Out / Send Money {amount:.2f} BDT to:</b>\n"
+            f"<b>Please Send Money {amount:.2f} BDT to:</b>\n"
             f"<code>{meta['number']}</code>\n\n"
             f"<i>(Tap the number to copy)</i>\n\n"
             f"<b>Click below after completing payment:</b>"
         )
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("\U0001f7e2 Paid", callback_data="dep_paid"),
+            [InlineKeyboardButton("\u2705 Paid", callback_data="dep_paid"),
              InlineKeyboardButton("\u274c Cancel", callback_data="dep_cancel")]
         ]), parse_mode="HTML")
         return True
