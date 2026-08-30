@@ -630,15 +630,6 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             return True
         await update.message.reply_text("\u26a0\ufe0f Transaction ID not found or already used. Please check your TrxID and try again.")
         return True
-        # Manual admin fallback removed per spec - no deposit creation
-        dep_id = db.create_deposit(user.id, username, pretty, amount, trx) # unreachable
-        # clear state
-        context.user_data.pop("deposit_method", None)
-        context.user_data.pop("deposit_amount", None)
-        context.user_data.pop("deposit_step", None)
-        await update.message.reply_text(
-            f"\u23f3 Your deposit request of {amount} BDT via {pretty} (TrxID: {trx}) has been submitted! Waiting for Admin verification."
-        )
     return False
 
 
@@ -670,7 +661,7 @@ def build_user_bot() -> Application:
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3 Deposit$"), deposit_entry))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Products$"), products))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4de Support$"), support))
-    app.add_handler(CallbackQueryHandler(deposit_callback, pattern=r"^dep_method:"))
+    app.add_handler(CallbackQueryHandler(deposit_callback, pattern=r"^dep_"))
     app.add_handler(CallbackQueryHandler(products_callback, pattern=r"^prod_"))
 
     # Catch text/photo/document that arrive while awaiting a submission/deposit
