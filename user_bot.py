@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 import database as db
-from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID, BKASH_NUMBER, NAGAD_NUMBER, SUPPORT_LINK, PRODUCT_PRICE
+from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID, BKASH_NUMBER, ROCKET_NUMBER, SUPPORT_LINK, PRODUCT_PRICE
 
 logger = logging.getLogger(__name__)
 
@@ -547,8 +547,8 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not data.startswith("dep_method:"):
         return
     method = data.split(":")[1]  # bkash / nagad
-    pretty = "bKash" if method == "bkash" else "Nagad"
-    number = BKASH_NUMBER if method == "bkash" else NAGAD_NUMBER
+    pretty = "bKash" if method == "bkash" else "Rocket"
+    number = BKASH_NUMBER if method == "bkash" else ROCKET_NUMBER
     # store method choice
     context.user_data["deposit_method"] = method
     context.user_data["deposit_step"] = "await_amount"
@@ -579,7 +579,7 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             return True
         context.user_data["deposit_amount"] = amount
         context.user_data["deposit_step"] = "await_trxid"
-        pretty = "bKash" if method == "bkash" else "Nagad"
+        pretty = "bKash" if method == "bkash" else "Rocket"
         await update.message.reply_text(f"Amount: {amount} BDT via {pretty}\nNow send Transaction ID (TrxID):")
         return True
 
@@ -589,7 +589,7 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("\u26a0\ufe0f TrxID too short. Please send valid TrxID.")
             return True
         amount = context.user_data.get("deposit_amount")
-        pretty = "bKash" if method == "bkash" else "Nagad"
+        pretty = "bKash" if method == "bkash" else "Rocket"
         username = user.username or ""
         # --- AUTO-VERIFY via SMS webhook ---
         claimed = db.claim_pending_deposit(trx, user.id)
@@ -599,14 +599,17 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data.pop("deposit_amount", None)
             context.user_data.pop("deposit_step", None)
             new_bal = db.get_bdt_balance(user.id)
-            await update.message.reply_text(f"\u2705 Your deposit of {amt:.2f} BDT via {claimed["gateway"]} (TrxID: {claimed["trx_id"]}) has been verified!\n\U0001f4b0 Added {amt:.2f} BDT to your Main Balance. New balance: {new_bal:.2f} BDT")
+            await update.message.reply_text(f"\u2705 Your deposit of {amt:.2f} BDT via {claimed['gateway']} (TrxID: {claimed['trx_id']}) has been verified!\n\U0001f4b0 Added {amt:.2f} BDT to your Main Balance. New balance: {new_bal:.2f} BDT")
             return True
         existing = db.get_pending_deposit_by_trx(trx)
         if existing:
             await update.message.reply_text("\u26a0\ufe0f Invalid or already used Transaction ID. Please check and try again.")
             return True
-        # create pending deposit
-        dep_id = db.create_deposit(user.id, username, pretty, amount, trx)
+        # Not found -> error, do NOT create manual admin request
+        await update.message.reply_text("\u26a0\ufe0f Transaction ID not found or already used. Please check your TrxID and try again.")
+        return True
+        # Manual admin fallback removed per spec - no deposit creation
+        dep_id = db.create_deposit(user.id, username, pretty, amount, trx) # unreachable
         # clear state
         context.user_data.pop("deposit_method", None)
         context.user_data.pop("deposit_amount", None)
@@ -614,53 +617,6 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             f"\u23f3 Your deposit request of {amount} BDT via {pretty} (TrxID: {trx}) has been submitted! Waiting for Admin verification."
         )
-        # Forward to Admin Bot — robust multi-admin, no Markdown parse errors
-        try:
-            ts = db.get_deposit(dep_id)["created_at"] if db.get_deposit(dep_id) else ""
-            admin_text = (
-                f"\U0001f514 New Deposit Request!\n"
-                f"\U0001f464 User: @{username or 'N/A'} (ID: {user.id})\n"
-                f"\U0001f4b3 Method: {pretty}\n"
-                f"\U0001f4b0 Amount: {amount} BDT\n"
-                f"\U0001f194 TrxID: {trx}\n"
-                f"\U0001f4c5 Time: {ts}\n"
-                f"Deposit ID: #{dep_id}"
-            )
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("\u2705 Approve", callback_data=f"dep_approve:{dep_id}"),
-                 InlineKeyboardButton("\u274c Reject", callback_data=f"dep_reject:{dep_id}")]
-            ])
-            # Try ADMIN_CHAT_ID first, fallback to all ADMIN_USER_IDS
-            targets = []
-            try:
-                # ADMIN_CHAT_ID may be single admin; always include
-                targets.append(ADMIN_CHAT_ID)
-            except Exception:
-                pass
-            # also include any ADMIN_USER_IDS not already in targets
-            from config import ADMIN_USER_IDS as _ADMIN_IDS
-            for aid in _ADMIN_IDS:
-                if aid not in targets:
-                    targets.append(aid)
-            sent_to = 0
-            last_err = None
-            for chat_id in targets:
-                try:
-                    async with telegram.Bot(token=ADMIN_BOT_TOKEN) as abot:
-                        await abot.send_message(chat_id=chat_id, text=admin_text, reply_markup=keyboard)
-                    sent_to += 1
-                except Exception as e2:
-                    last_err = e2
-                    logger.warning("Deposit forward to %s failed: %s", chat_id, e2)
-                    continue
-            if sent_to == 0:
-                raise last_err or Exception("No admin chat reachable")
-            else:
-                logger.info("Deposit #%s forwarded to %s admins", dep_id, sent_to)
-        except Exception as e:
-            logger.error("Forward deposit to admin failed: %s", e, exc_info=True)
-            # keep deposit pending so admin can see via /deposits
-        return True
     return False
 
 

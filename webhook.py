@@ -15,8 +15,7 @@ TRXID_GENERIC = re.compile(r"(?:Trx|Txn|Transaction)\s*ID\s*[:\-\s]*([A-Za-z0-9]
 
 GATEWAY_MAP = {
     "bKash": ["bkash", "16247"],
-    "Nagad": ["nagad", "16167", "09609616167"],
-    "Rocket": ["rocket", "16216", "DBBL"],
+    "Rocket": ["rocket", "16216"],
 }
 
 def detect_gateway(sender: str, body: str) -> str:
@@ -25,11 +24,8 @@ def detect_gateway(sender: str, body: str) -> str:
         for k in keys:
             if k.lower() in text:
                 return gw
-    # fallback: try to infer from body keywords
     if "bkash" in text:
         return "bKash"
-    if "nagad" in text:
-        return "Nagad"
     if "rocket" in text:
         return "Rocket"
     return "bKash"
@@ -55,12 +51,6 @@ def parse_sms(sender: str, body: str):
 
 @app.route("/api/sms-webhook", methods=["POST"])
 def sms_webhook():
-    # Secret check
-    secret = os.getenv("WEBHOOK_SECRET", "")
-    if secret:
-        provided = request.headers.get("X-Webhook-Secret") or request.headers.get("Authorization", "").replace("Bearer ", "")
-        if provided != secret:
-            return jsonify({"error": "Unauthorized"}), 401
     data = request.get_json(silent=True) or {}
     # Support multiple payload shapes from SMS forwarder apps
     sender = data.get("sender") or data.get("from") or data.get("address") or ""
