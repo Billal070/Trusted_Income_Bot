@@ -11,6 +11,7 @@ DB_PATH = os.environ.get("DB_PATH", "database.db")
 BKASH_NUMBER = os.environ.get("BKASH_NUMBER", "017XXXXXXXX")
 NAGAD_NUMBER = os.environ.get("NAGAD_NUMBER", "018XXXXXXXX")
 SUPPORT_LINK = os.environ.get("SUPPORT_LINK", "https://t.me/your_support")
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 # Google Sheets Product Store
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")
 GOOGLE_SHEET_NAME = os.environ.get("GOOGLE_SHEET_NAME", "Trusted Income Bot")

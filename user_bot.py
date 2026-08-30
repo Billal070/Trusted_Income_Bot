@@ -584,13 +584,27 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         return True
 
     if step == "await_trxid":
-        trx = text.strip()
+        trx = text.strip().upper()
         if len(trx) < 4:
             await update.message.reply_text("\u26a0\ufe0f TrxID too short. Please send valid TrxID.")
             return True
         amount = context.user_data.get("deposit_amount")
         pretty = "bKash" if method == "bkash" else "Nagad"
         username = user.username or ""
+        # --- AUTO-VERIFY via SMS webhook ---
+        claimed = db.claim_pending_deposit(trx, user.id)
+        if claimed:
+            amt = float(claimed["amount"])
+            context.user_data.pop("deposit_method", None)
+            context.user_data.pop("deposit_amount", None)
+            context.user_data.pop("deposit_step", None)
+            new_bal = db.get_bdt_balance(user.id)
+            await update.message.reply_text(f"\u2705 Your deposit of {amt:.2f} BDT via {claimed["gateway"]} (TrxID: {claimed["trx_id"]}) has been verified!\n\U0001f4b0 Added {amt:.2f} BDT to your Main Balance. New balance: {new_bal:.2f} BDT")
+            return True
+        existing = db.get_pending_deposit_by_trx(trx)
+        if existing:
+            await update.message.reply_text("\u26a0\ufe0f Invalid or already used Transaction ID. Please check and try again.")
+            return True
         # create pending deposit
         dep_id = db.create_deposit(user.id, username, pretty, amount, trx)
         # clear state

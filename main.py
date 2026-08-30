@@ -8,7 +8,9 @@ Both bots share one asyncio event loop.
 
 import asyncio
 import logging
+import os
 import signal
+import threading
 
 from database import init_db
 from user_bot import build_user_bot
@@ -20,10 +22,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def _start_webhook():
+    try:
+        from webhook import app as webhook_app
+        port = int(os.getenv("PORT", "8080"))
+        logger.info("Starting webhook on port %s", port)
+        webhook_app.run(host="0.0.0.0", port=port, use_reloader=False)
+    except Exception as e:
+        logger.warning("Webhook failed to start: %s", e)
+
 
 async def main():
     init_db()
     logger.info("Database initialized.")
+
+    # Start SMS webhook in background thread (for auto payment verification)
+    threading.Thread(target=_start_webhook, daemon=True).start()
 
     user_app = build_user_bot()
     admin_app = build_admin_bot()

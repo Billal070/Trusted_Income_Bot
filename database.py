@@ -109,6 +109,20 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
             CREATE INDEX IF NOT EXISTS idx_deposits_user ON deposits(user_id);
+            CREATE TABLE IF NOT EXISTS pending_deposits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                gateway TEXT NOT NULL,
+                amount REAL NOT NULL,
+                trx_id TEXT NOT NULL UNIQUE,
+                sender TEXT,
+                raw_message TEXT,
+                status TEXT DEFAULT 'UNCLAIMED',
+                claimed_by INTEGER,
+                claimed_at TIMESTAMP,
+                created_at TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_pending_deposits_trx ON pending_deposits(trx_id);
+            CREATE INDEX IF NOT EXISTS idx_pending_deposits_status ON pending_deposits(status);
         """)
 
 
@@ -391,6 +405,48 @@ def reject_deposit(deposit_id: int, admin_id: int) -> dict | None:
             return None
         conn.execute("UPDATE deposits SET status='rejected', verified_at=?, verified_by=? WHERE id=?", (_now(), admin_id, deposit_id))
         return dict(row)
+
+# -- SMS auto-verify helpers ----------------------------------
+
+def create_pending_deposit(gateway: str, amount: float, trx_id: str, sender: str | None, raw_message: str | None) -> int | None:
+    with get_conn() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO pending_deposits (gateway, amount, trx_id, sender, raw_message, status, created_at) VALUES (?, ?, ?, ?, ?, 'UNCLAIMED', ?)",
+                (gateway, amount, trx_id.strip().upper(), sender, raw_message, _now()),
+            )
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            return None  # duplicate TrxID
+
+def get_pending_deposit_by_trx(trx_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM pending_deposits WHERE trx_id = ? COLLATE NOCASE", (trx_id.strip().upper(),)).fetchone()
+        return dict(row) if row else None
+
+def claim_pending_deposit(trx_id: str, user_id: int) -> dict | None:
+    """Atomically claim UNCLAIMED TrxID. Returns deposit row or None if not found/already claimed."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM pending_deposits WHERE trx_id = ? COLLATE NOCASE AND status='UNCLAIMED'", (trx_id.strip().upper(),)).fetchone()
+        if not row:
+            return None
+        dep = dict(row)
+        cur = conn.execute(
+            "UPDATE pending_deposits SET status='CLAIMED', claimed_by=?, claimed_at=? WHERE id=? AND status='UNCLAIMED'",
+            (user_id, _now(), dep["id"]),
+        )
+        if cur.rowcount == 0:
+            return None
+        # credit user's BDT (1 BDT = 1 unit, amount may be float)
+        amt = float(dep["amount"])
+        conn.execute("UPDATE users SET bdt_balance = COALESCE(bdt_balance,0)+? WHERE user_id=?", (amt, user_id))
+        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'bdt_auto', 0, ?)", (user_id, amt, _now()))
+        # also create a record in deposits for audit
+        conn.execute(
+            "INSERT INTO deposits (user_id, username, method, amount, trx_id, status, created_at, verified_at, verified_by) VALUES (?, ?, ?, ?, ?, 'approved', ?, ?, 0)",
+            (user_id, "", dep["gateway"], int(amt) if float(amt).is_integer() else amt, dep["trx_id"], _now(), _now()),
+        )
+        return dep
 
 
 # -- Photo helpers ---------------------------------------------
