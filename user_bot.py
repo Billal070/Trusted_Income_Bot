@@ -528,7 +528,7 @@ async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -- Deposit Flow (bKash & Rocket ONLY - Clean State Machine) --
 
 GATEWAY_META = {
-    "bkash": {"name": "bKash", "icon": "\U0001f338", "number": BKASH_NUMBER},
+    "bkash": {"name": "bKash", "icon": "\U0001f4b8", "number": BKASH_NUMBER},
     "rocket": {"name": "Rocket", "icon": "\U0001f680", "number": ROCKET_NUMBER},
 }
 
@@ -541,10 +541,10 @@ async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_product_state(context)
     context.user_data.pop("awaiting_submission", None)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001f338 bKash", callback_data="dep_method:bkash"),
+        [InlineKeyboardButton("\U0001f4b8 bKash", callback_data="dep_method:bkash"),
          InlineKeyboardButton("\U0001f680 Rocket", callback_data="dep_method:rocket")],
     ])
-    await update.message.reply_text("<b>\U0001f4b3 Deposit</b>\n\n<b>Select payment method:</b>", reply_markup=keyboard, parse_mode="HTML")
+    await update.message.reply_text("<b>\U0001f4b0 Deposit Funds</b>\n\n<b>Choose your preferred gateway:</b>", reply_markup=keyboard, parse_mode="HTML")
 
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -558,9 +558,9 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["deposit_method"] = method
         context.user_data["deposit_step"] = "WAITING_FOR_AMOUNT"
         text = (
-            f"<b>{meta['icon']} {meta['name']}</b>\n\n"
-            f"<b>Enter deposit amount in BDT:</b>\n"
-            f"<i>(Minimum: 20.0 BDT)</i>"
+            f"<b>{meta['icon']} {meta['name']} Payment</b>\n\n"
+            f"<b>Type the amount you want to add (BDT):</b>\n"
+            f"<i>(Minimum Deposit: 20 BDT)</i>"
         )
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("\u274c Cancel", callback_data="dep_cancel")]
@@ -578,10 +578,10 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         meta = GATEWAY_META.get(method, GATEWAY_META["bkash"])
         context.user_data["deposit_step"] = "WAITING_FOR_TRXID"
         text = (
-            f"<b>\U0001f6a9 Enter Transaction ID</b>\n\n"
-            f"<b>Amount: {amt:.2f} BDT via {meta['name']}</b>\n\n"
-            f"<b>Send the TrxID from your payment SMS</b>\n"
-            f"<i>(e.g. DF27TNVV17)</i>"
+            f"<b>\U0001f4cd Submit Transaction ID</b>\n\n"
+            f"<b>Target Amount: {amt:.2f} BDT via {meta['name']}</b>\n\n"
+            f"<b>Enter your SMS Transaction ID below:</b>\n"
+            f"<i>(Example format: 9A8B7C6D5E)</i>"
         )
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("\u274c Cancel", callback_data="dep_cancel")]
@@ -592,7 +592,7 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "dep_cancel":
         await query.answer()
         _clear_deposit_state(context)
-        await query.edit_message_text("<b>\u274c Deposit Cancelled.</b>", parse_mode="HTML")
+        await query.edit_message_text("<b>\U0001f6ab Deposit request terminated.</b>", parse_mode="HTML")
         return
 
 async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -616,11 +616,11 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         meta = GATEWAY_META.get(method, GATEWAY_META["bkash"])
         context.user_data["deposit_step"] = "WAITING_FOR_PAID_CLICK"
         text = (
-            f"<b>\U0001f4b3 {meta['name']}</b>\n\n"
-            f"<b>Send {amount:.2f} BDT to:</b>\n"
+            f"<b>\U0001f4e5 Transfer Instructions ({meta['name']})</b>\n\n"
+            f"<b>Please Cash Out / Send Money {amount:.2f} BDT to:</b>\n"
             f"<code>{meta['number']}</code>\n\n"
-            f"<i>Tap the number above to copy</i>\n\n"
-            f"<b>After sending, tap Paid below:</b>"
+            f"<i>(Tap the number to copy)</i>\n\n"
+            f"<b>Click below after completing payment:</b>"
         )
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("\U0001f7e2 Paid", callback_data="dep_paid"),
@@ -636,7 +636,7 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             return True
         pending = db.get_pending_deposit_by_trx(trx)
         if not pending or pending.get("status") != "UNCLAIMED":
-            await update.message.reply_text("<b>\u274c Invalid or already used Transaction ID. Please check and try again.</b>", parse_mode="HTML")
+            await update.message.reply_text("<b>\u26a0\ufe0f Invalid or already used TrxID. Please check your SMS and try again.</b>", parse_mode="HTML")
             return True
         selected = "bKash" if context.user_data.get("deposit_method") == "bkash" else "Rocket"
         actual = pending.get("gateway", "")
@@ -648,12 +648,12 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             amt = float(claimed["amount"])
             new_bal = db.get_bdt_balance(user.id)
             await update.message.reply_text(
-                f"<b>\u2705 Deposit Verified! Added {amt:.2f} BDT to your account.\nNew Balance: {new_bal:.2f} BDT</b>",
+                f"<b>\U0001f389 Payment Confirmed! Added {amt:.2f} BDT to your balance.\nCurrent Balance: {new_bal:.2f} BDT</b>",
                 parse_mode="HTML"
             )
             _clear_deposit_state(context)
             return True
-        await update.message.reply_text("<b>\u274c Invalid or already used Transaction ID. Please check and try again.</b>", parse_mode="HTML")
+        await update.message.reply_text("<b>\u26a0\ufe0f Invalid or already used TrxID. Please check your SMS and try again.</b>", parse_mode="HTML")
         return True
     return False
 
