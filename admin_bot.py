@@ -91,20 +91,22 @@ async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
     total_credit_added = db.get_user_total_credit_added(target_user_id)
     join_date = user["joined_at"] or "N/A"
+    join_date_str = str(join_date).split("T")[0]
     text = (
         f"\U0001f464 <b>User Details</b>\n"
         f"<b>ID:</b> <code>{target_user_id}</code>\n"
         f"<b>Username:</b> @{target_username}\n"
         f"<b>Name:</b> {target_name}\n"
         f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+        f"\U0001fa99 <b>Credit Balance:</b> <b>{user_credits}</b>\n"
         f"<b>Status:</b> {status_emoji}\n"
-        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\u2501????????????????????\n"
         f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
-        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+        f"\U0001f6cd\ufe0f <b>Spent:</b> <b>{total_spent:.2f} BDT</b>\n"
         f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
         f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
-        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
-        f"\U0001f4c5 <b>Joined:</b> {join_date}"
+        f"\u2501????????????????????\n"
+        f"\U0001f4c5 <b>Joined:</b> {join_date_str}"
     )
     uid = target_user_id
     ban_label = "\u2705 Unban" if user["is_banned"] else "\U0001f6ab Ban"
@@ -315,20 +317,22 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
             total_credit_added = db.get_user_total_credit_added(target_user_id)
             join_date = u["joined_at"] or "N/A"
+            join_date_str = str(join_date).split("T")[0]
             text = (
                 f"\U0001f464 <b>User Details</b>\n"
                 f"<b>ID:</b> <code>{target_user_id}</code>\n"
                 f"<b>Username:</b> @{target_username}\n"
                 f"<b>Name:</b> {target_name}\n"
                 f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+                f"\U0001fa99 <b>Credit Balance:</b> <b>{user_credits}</b>\n"
                 f"<b>Status:</b> {status_emoji}\n"
                 f"\u2501????????????????????\n"
                 f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
-                f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+                f"\U0001f6cd\ufe0f <b>Spent:</b> <b>{total_spent:.2f} BDT</b>\n"
                 f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
                 f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
                 f"\u2501????????????????????\n"
-                f"\U0001f4c5 <b>Joined:</b> {join_date}"
+                f"\U0001f4c5 <b>Joined:</b> {join_date_str}"
             )
             ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
             keyboard = InlineKeyboardMarkup([
@@ -363,20 +367,22 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
             total_credit_added = db.get_user_total_credit_added(target_user_id)
             join_date = u["joined_at"] or "N/A"
+            join_date_str = str(join_date).split("T")[0]
             text = (
                 f"\U0001f464 <b>User Details</b>\n"
                 f"<b>ID:</b> <code>{target_user_id}</code>\n"
                 f"<b>Username:</b> @{target_username}\n"
                 f"<b>Name:</b> {target_name}\n"
                 f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+                f"\U0001fa99 <b>Credit Balance:</b> <b>{user_credits}</b>\n"
                 f"<b>Status:</b> {status_emoji}\n"
                 f"\u2501????????????????????\n"
                 f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
-                f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+                f"\U0001f6cd\ufe0f <b>Spent:</b> <b>{total_spent:.2f} BDT</b>\n"
                 f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
                 f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
                 f"\u2501????????????????????\n"
-                f"\U0001f4c5 <b>Joined:</b> {join_date}"
+                f"\U0001f4c5 <b>Joined:</b> {join_date_str}"
             )
             ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
             keyboard = InlineKeyboardMarkup([
@@ -541,20 +547,22 @@ def _user_detail_text(uid: int) -> tuple[str, InlineKeyboardMarkup]:
     lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
     total_credit_added = db.get_user_total_credit_added(target_user_id)
     join_date = u["joined_at"] or "N/A"
+    join_date_str = str(join_date).split("T")[0]
     text = (
         f"\U0001f464 <b>User Details</b>\n"
         f"<b>ID:</b> <code>{target_user_id}</code>\n"
         f"<b>Username:</b> @{target_username}\n"
         f"<b>Name:</b> {target_name}\n"
         f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+        f"\U0001fa99 <b>Credit Balance:</b> <b>{user_credits}</b>\n"
         f"<b>Status:</b> {status_emoji}\n"
-        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\u2501????????????????????\n"
         f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
-        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+        f"\U0001f6cd\ufe0f <b>Spent:</b> <b>{total_spent:.2f} BDT</b>\n"
         f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
         f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
-        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
-        f"\U0001f4c5 <b>Joined:</b> {join_date}"
+        f"\u2501????????????????????\n"
+        f"\U0001f4c5 <b>Joined:</b> {join_date_str}"
     )
     ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
     # we encode originating page in callback so Back returns there; default 0
@@ -583,20 +591,22 @@ async def show_user_detail(query: CallbackQuery, uid: int, page: int):
     lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
     total_credit_added = db.get_user_total_credit_added(target_user_id)
     join_date = u["joined_at"] or "N/A"
+    join_date_str = str(join_date).split("T")[0]
     text = (
         f"\U0001f464 <b>User Details</b>\n"
         f"<b>ID:</b> <code>{target_user_id}</code>\n"
         f"<b>Username:</b> @{target_username}\n"
         f"<b>Name:</b> {target_name}\n"
         f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
+        f"\U0001fa99 <b>Credit Balance:</b> <b>{user_credits}</b>\n"
         f"<b>Status:</b> {status_emoji}\n"
-        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
+        f"\u2501????????????????????\n"
         f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
-        f"\U0001f6cd\ufe0f <b>Spending in products (spent):</b> <b>{total_spent:.2f} BDT</b>\n"
+        f"\U0001f6cd\ufe0f <b>Spent:</b> <b>{total_spent:.2f} BDT</b>\n"
         f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
         f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
-        f"\u2501━━━━━━━━━━━━━━━━━━━━\n"
-        f"\U0001f4c5 <b>Joined:</b> {join_date}"
+        f"\u2501????????????????????\n"
+        f"\U0001f4c5 <b>Joined:</b> {join_date_str}"
     )
     ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
     keyboard = InlineKeyboardMarkup([
