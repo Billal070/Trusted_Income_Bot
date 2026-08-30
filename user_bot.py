@@ -72,15 +72,15 @@ def _maintenance_guard(handler):
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("\U0001f6cd\ufe0f Buy Products")],
-        [KeyboardButton("\U0001f4b3 Deposit"), KeyboardButton("\U0001f464 Profile")],
-        [KeyboardButton("\U0001f4de Support"), KeyboardButton("\U0001f4c1 History")],
+        [KeyboardButton("\U0001f4b3 Deposit"), KeyboardButton("\U0001f4e5 Submit Job")],
+        [KeyboardButton("\U0001f464 Profile"), KeyboardButton("\U0001f4de Support")],
     ],
     resize_keyboard=True,
 )
 
 MAINTENANCE_TEXT = (
     "<b>\U0001f6a7 System Under Maintenance</b>\n\n"
-    "<b>We are currently performing routine updates or resolving temporary issues. Please check back shortly!</b>"
+    "<b>We are currently performing routine updates. Please try again shortly!</b>"
 )
 
 
@@ -757,9 +757,9 @@ def build_user_bot() -> Application:
     app.add_handler(CommandHandler("cancel", _maintenance_guard(cancel)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Buy Products$"), _maintenance_guard(products)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3 Deposit$"), _maintenance_guard(deposit_entry)))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f4e5 Submit Job$"), _maintenance_guard(submit_job)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f464 Profile$"), _maintenance_guard(profile)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4de Support$"), _maintenance_guard(support)))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4c1 History$"), _maintenance_guard(history)))
     app.add_handler(CallbackQueryHandler(_maintenance_guard(deposit_callback), pattern=r"^dep_"))
     app.add_handler(CallbackQueryHandler(_maintenance_guard(products_callback), pattern=r"^prod_"))
 

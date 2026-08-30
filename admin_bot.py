@@ -947,6 +947,7 @@ def build_admin_bot() -> Application:
     app.add_handler(CommandHandler("removecredit", removecredit_cmd))
     app.add_handler(CommandHandler("addbalance", addbalance_cmd))
     app.add_handler(CommandHandler("removebalance", removebalance_cmd))
+    app.add_handler(CommandHandler("maintenance", maintenance_mode))
 
     app.add_handler(MessageHandler(filters.Regex("^\U0001f50d Search User$"), search_user_prompt))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4e2 Broadcast$"), broadcast_prompt))
