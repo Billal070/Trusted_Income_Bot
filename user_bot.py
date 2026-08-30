@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 import database as db
-from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID, BKASH_NUMBER, ROCKET_NUMBER, SUPPORT_LINK, PRODUCT_PRICE
+from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_CHAT_ID, ADMIN_USER_IDS, BKASH_NUMBER, ROCKET_NUMBER, SUPPORT_LINK, PRODUCT_PRICE
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +45,42 @@ async def notify_user_credit_change(user_id: int, amount: int, action: str, new_
         pass
 
 
+# -- Maintenance Mode gatekeeper -------------------------------
+
+def _is_admin_user(user_id: int) -> bool:
+    return user_id in ADMIN_USER_IDS
+
+
+def _maintenance_guard(handler):
+    """Wrap a user-bot handler so non-admin users are blocked during maintenance."""
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id if update.effective_user else None
+        if user_id is not None and not _is_admin_user(user_id) and db.is_maintenance():
+            try:
+                chat_id = (update.effective_chat.id if update.effective_chat
+                           else (update.callback_query.message.chat.id if update.callback_query and update.callback_query.message else None))
+                if chat_id is not None:
+                    await context.bot.send_message(chat_id=chat_id, text=MAINTENANCE_TEXT, parse_mode="HTML")
+            except Exception:
+                pass
+            return
+        return await handler(update, context)
+    return wrapped
+
+
 # -- Keyboard --------------------------------------------------
-# NOTE: Product delivery paused until wallet/deposit system live — Products shows placeholder.
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
-        [KeyboardButton("\U0001f4b3Get Nid"), KeyboardButton("\U0001f4dd Submit Job")],
-        [KeyboardButton("\U0001f4b0 Balance"), KeyboardButton("\U0001f4b3 Deposit")],
-        [KeyboardButton("\U0001f6cd\ufe0f Products"), KeyboardButton("\U0001f4de Support")],
+        [KeyboardButton("\U0001f6cd\ufe0f Buy Products")],
+        [KeyboardButton("\U0001f4b3 Deposit"), KeyboardButton("\U0001f464 Profile")],
+        [KeyboardButton("\U0001f4de Support"), KeyboardButton("\U0001f4c1 History")],
     ],
     resize_keyboard=True,
+)
+
+MAINTENANCE_TEXT = (
+    "<b>\U0001f6a7 System Under Maintenance</b>\n\n"
+    "<b>We are currently performing routine updates or resolving temporary issues. Please check back shortly!</b>"
 )
 
 
@@ -309,6 +336,54 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\U0001f194 ID: {user_id}\n"
         f"\U0001fa99 Current Credits: {credits}\n"
         f"\u09f3 Main Balance: {bdt} BDT"
+    )
+
+# -- Profile (user account details) ----------------------------
+
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _clear_deposit_state(context)
+    _clear_product_state(context)
+    user_id = update.effective_user.id
+    if db.is_banned(user_id):
+        await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
+        return
+    u = db.get_user(user_id)
+    credits = u["credits"] if u else 0
+    bdt = db.get_bdt_balance(user_id)
+    username = f"@{update.effective_user.username}" if update.effective_user.username else f"ID:{user_id}"
+    join_date = (u["joined_at"] if u and u["joined_at"] else "N/A")
+    join_str = str(join_date).split("T")[0] if join_date != "N/A" else "N/A"
+    await update.message.reply_text(
+        f"\U0001f464 <b>User Profile</b>\n"
+        f"<b>User:</b> {username}\n"
+        f"<b>ID:</b> <code>{user_id}</code>\n"
+        f"<b>----------------------</b>\n"
+        f"\U0001f45b <b>Main Balance:</b> {bdt} BDT\n"
+        f"\U0001fa99 <b>Credit Balance:</b> {credits}\n"
+        f"<b>----------------------</b>\n"
+        f"\U0001f4c5 <b>Joined:</b> {join_str}",
+        parse_mode="HTML",
+    )
+
+# -- History ---------------------------------------------------
+
+async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _clear_deposit_state(context)
+    _clear_product_state(context)
+    user_id = update.effective_user.id
+    if db.is_banned(user_id):
+        await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
+        return
+    subs = db.get_submission_count(user_id)
+    spent = db.get_user_spent(user_id)
+    deposits = db.get_user_lifetime_deposits(user_id)
+    await update.message.reply_text(
+        f"\U0001f4c1 <b>Your Activity</b>\n"
+        f"<b>----------------------</b>\n"
+        f"\U0001f4dd <b>Total Submissions:</b> {subs}\n"
+        f"\U0001f6cd\ufe0f <b>Total Spent:</b> {spent:.2f} BDT\n"
+        f"\U0001f4b3 <b>Lifetime Deposits:</b> {deposits:.2f} BDT",
+        parse_mode="HTML",
     )
 
 # -- Products (Multi-category Inline Navigation + Confirmation) --
@@ -678,21 +753,20 @@ async def catch_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def build_user_bot() -> Application:
     app = Application.builder().token(USER_BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3Get Nid$"), get_pic))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4dd Submit Job$"), submit_job))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4b0 Balance$"), balance))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3 Deposit$"), deposit_entry))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Products$"), products))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4de Support$"), support))
-    app.add_handler(CallbackQueryHandler(deposit_callback, pattern=r"^dep_"))
-    app.add_handler(CallbackQueryHandler(products_callback, pattern=r"^prod_"))
+    app.add_handler(CommandHandler("start", _maintenance_guard(start)))
+    app.add_handler(CommandHandler("cancel", _maintenance_guard(cancel)))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Buy Products$"), _maintenance_guard(products)))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3 Deposit$"), _maintenance_guard(deposit_entry)))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f464 Profile$"), _maintenance_guard(profile)))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f4de Support$"), _maintenance_guard(support)))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f4c1 History$"), _maintenance_guard(history)))
+    app.add_handler(CallbackQueryHandler(_maintenance_guard(deposit_callback), pattern=r"^dep_"))
+    app.add_handler(CallbackQueryHandler(_maintenance_guard(products_callback), pattern=r"^prod_"))
 
     # Catch text/photo/document that arrive while awaiting a submission/deposit
     app.add_handler(MessageHandler(
         (filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND,
-        catch_submission,
+        _maintenance_guard(catch_submission),
     ))
 
     return app

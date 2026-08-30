@@ -123,6 +123,12 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_pending_deposits_trx ON pending_deposits(trx_id);
             CREATE INDEX IF NOT EXISTS idx_pending_deposits_status ON pending_deposits(status);
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP
+            );
         """)
 
 
@@ -281,6 +287,24 @@ def is_banned(user_id: int) -> bool:
     with get_conn() as conn:
         row = conn.execute("SELECT is_banned FROM users WHERE user_id = ?", (user_id,)).fetchone()
         return bool(row and row["is_banned"])
+
+
+# -- Maintenance Mode ------------------------------------------
+
+def set_maintenance(enabled: bool):
+    """Persist the global maintenance-mode flag."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
+            ("is_maintenance", "1" if enabled else "0", _now()),
+        )
+
+
+def is_maintenance() -> bool:
+    """Return True if the bot is currently in maintenance mode."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = 'is_maintenance'").fetchone()
+        return bool(row and row["value"] == "1")
 
 
 def get_credits(user_id: int) -> int:

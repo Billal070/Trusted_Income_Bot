@@ -47,6 +47,7 @@ ADMIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("\U0001f50d Search User"), KeyboardButton("\U0001f4e2 Broadcast")],
         [KeyboardButton("\U0001f4ca Stats"), KeyboardButton("\U0001f465 Manage Users")],
+        [KeyboardButton("\U0001f6a7 Maintenance Mode")],
     ],
     resize_keyboard=True,
 )
@@ -129,6 +130,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await query.answer("\u26d4 Unauthorized.", show_alert=True)
 
     data = query.data
+
+    # --- Maintenance Mode toggle callbacks ---
+    if data == "maint_on" or data == "maint_off":
+        await query.answer()
+        enabled = (data == "maint_on")
+        db.set_maintenance(enabled)
+        status_text = "\u2705 <b>Status: ON</b> (users are blocked)" if enabled else "\u26ab <b>Status: OFF</b> (users can use the bot)"
+        button_text = "\U0001f7e2 Turn OFF Maintenance" if enabled else "\U0001f534 Turn ON Maintenance"
+        cb = "maint_off" if enabled else "maint_on"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button_text, callback_data=cb)]])
+        try:
+            await query.edit_message_text(
+                f"\U0001f6a7 <b>Maintenance Mode</b>\n\n{status_text}\n\nTap the toggle below to change status:",
+                reply_markup=keyboard, parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return
 
     # --- Deposit verification callbacks ---
     if data.startswith("dep_approve:") or data.startswith("dep_reject:"):
@@ -482,6 +501,39 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>"
     )
     await update.message.reply_text(stats_message, parse_mode="HTML")
+
+
+# -- 🛠 Maintenance Mode ---------------------------------------
+
+async def maintenance_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_admin(update.effective_user.id):
+        return await update.message.reply_text("\u26d4 Unauthorized.")
+    await _send_maintenance_menu(update, context)
+
+async def _send_maintenance_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    on = db.is_maintenance()
+    status_text = "\u2705 <b>Status: ON</b> (users are blocked)" if on else "\u26ab <b>Status: OFF</b> (users can use the bot)"
+    if on:
+        toggle = [InlineKeyboardButton("\U0001f7e2 Turn OFF Maintenance", callback_data="maint_off")]
+    else:
+        toggle = [InlineKeyboardButton("\U0001f534 Turn ON Maintenance", callback_data="maint_on")]
+    keyboard = InlineKeyboardMarkup([toggle])
+    if update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(
+                f"\U0001f6a7 <b>Maintenance Mode</b>\n\n{status_text}\n\nTap the toggle below to change status:",
+                reply_markup=keyboard, parse_mode="HTML"
+            )
+        except Exception:
+            await update.message.reply_text(
+                f"\U0001f6a7 <b>Maintenance Mode</b>\n\n{status_text}\n\nTap the toggle below to change status:",
+                reply_markup=keyboard, parse_mode="HTML"
+            )
+    else:
+        await update.message.reply_text(
+            f"\U0001f6a7 <b>Maintenance Mode</b>\n\n{status_text}\n\nTap the toggle below to change status:",
+            reply_markup=keyboard, parse_mode="HTML"
+        )
 
 
 # -- 👥 Manage Users (paginated) ---------------------------------
@@ -900,6 +952,7 @@ def build_admin_bot() -> Application:
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4e2 Broadcast$"), broadcast_prompt))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4ca Stats$"), stats))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f465 Manage Users$"), manage_users_button))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f6a7 Maintenance Mode$"), maintenance_mode))
 
     app.add_handler(CallbackQueryHandler(callback_handler))
 
