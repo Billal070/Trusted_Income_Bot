@@ -85,6 +85,7 @@ async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     target_username = user["username"] or "N/A"
     target_name = user["first_name"] or "N/A"
     user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+    user_credits = int(db.get_user(target_user_id)["credits"] or 0)
     status_emoji = "Active \u2705" if not user["is_banned"] else "Banned \U0001f6ab"
     total_submissions = db.get_submission_count(target_user_id)
     total_spent = db.get_user_spent(target_user_id)
@@ -311,6 +312,7 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             target_username = u["username"] or "N/A"
             target_name = u["first_name"] or "N/A"
             user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+            user_credits = int(db.get_user(target_user_id)["credits"] or 0)
             status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
             total_submissions = db.get_submission_count(target_user_id)
             total_spent = db.get_user_spent(target_user_id)
@@ -361,6 +363,7 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             target_username = u["username"] or "N/A"
             target_name = u["first_name"] or "N/A"
             user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+            user_credits = int(db.get_user(target_user_id)["credits"] or 0)
             status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
             total_submissions = db.get_submission_count(target_user_id)
             total_spent = db.get_user_spent(target_user_id)
@@ -541,6 +544,7 @@ def _user_detail_text(uid: int) -> tuple[str, InlineKeyboardMarkup]:
     target_username = u["username"] or "N/A"
     target_name = u["first_name"] or "N/A"
     user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+    user_credits = int(db.get_user(target_user_id)["credits"] or 0)
     status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
     total_submissions = db.get_submission_count(target_user_id)
     total_spent = db.get_user_spent(target_user_id)
@@ -585,6 +589,7 @@ async def show_user_detail(query: CallbackQuery, uid: int, page: int):
     target_username = u["username"] or "N/A"
     target_name = u["first_name"] or "N/A"
     user_balance = float(db.get_bdt_balance(target_user_id) or 0)
+    user_credits = int(db.get_user(target_user_id)["credits"] or 0)
     status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
     total_submissions = db.get_submission_count(target_user_id)
     total_spent = db.get_user_spent(target_user_id)
