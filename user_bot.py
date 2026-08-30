@@ -382,7 +382,6 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u274c Cancel", callback_data="prod_cancel")]])
         )
-        await query.message.reply_text("Enter quantity (e.g., 5):")
         return
     if data == "prod_cancel":
         _clear_pending_order(context)
