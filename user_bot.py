@@ -535,31 +535,51 @@ async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _clear_product_state(context)
     context.user_data.pop("awaiting_submission", None)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("\U0001f338 bKash", callback_data="dep_method:bkash"),
-         InlineKeyboardButton("\U0001f7e0 Nagad", callback_data="dep_method:nagad")],
+        [InlineKeyboardButton("\U0001f4b8 bKash", callback_data="dep_method:bkash"),
+         InlineKeyboardButton("\U0001f680 Rocket", callback_data="dep_method:rocket")],
     ])
-    await update.message.reply_text("\U0001f4b3 Select payment method:", reply_markup=keyboard)
+    await update.message.reply_text("<b>\U0001f4b3 Select Payment Method:</b>", reply_markup=keyboard, parse_mode="HTML")
 
 async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     data = query.data
-    if not data.startswith("dep_method:"):
+    if data.startswith("dep_method:"):
+        await query.answer()
+        method = data.split(":")[1]  # bkash / rocket
+        pretty = "bKash" if method == "bkash" else "Rocket"
+        number = BKASH_NUMBER if method == "bkash" else ROCKET_NUMBER
+        context.user_data["deposit_method"] = method
+        context.user_data["deposit_step"] = "await_amount"
+        text = (
+            f"<b>\u2705 Selected Gateway: {pretty}</b>\n\n"
+            f"<b>Please send money to:</b>\n"
+            f"<code>{number}</code> <b>({pretty})</b>\n\n"
+            f"<b>\u270d\ufe0f Please enter the Deposit Amount (BDT):</b>"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("\u2705 Paid", callback_data="dep_paid"),
+             InlineKeyboardButton("\u274c Cancel", callback_data="dep_cancel")]
+        ])
+        await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
         return
-    method = data.split(":")[1]  # bkash / nagad
-    pretty = "bKash" if method == "bkash" else "Rocket"
-    number = BKASH_NUMBER if method == "bkash" else ROCKET_NUMBER
-    # store method choice
-    context.user_data["deposit_method"] = method
-    context.user_data["deposit_step"] = "await_amount"
-    await query.edit_message_text(
-        f"\u2705 Selected: {pretty}\n\n"
-        f"Please send money to:\n`{number}` ({pretty})\n\n"
-        f"Then submit:\n1️⃣ Amount in BDT (numbers only)\n"
-        f"After that you will be asked for TrxID.",
-        parse_mode="Markdown"
-    )
-    await query.message.reply_text(f"Enter amount in BDT for {pretty}:")
+    if data == "dep_paid":
+        await query.answer()
+        amt = context.user_data.get("deposit_amount")
+        if not amt:
+            await query.answer("Please enter amount first.", show_alert=True)
+            return
+        context.user_data["deposit_step"] = "await_trxid"
+        await query.edit_message_text(
+            "<b>\U0001f4e9 Enter your Transaction ID (TrxID):</b>\n\n<b>Example: 9AXYZ12B</b>",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("\u274c Cancel", callback_data="dep_cancel")]]),
+            parse_mode="HTML"
+        )
+        return
+    if data == "dep_cancel":
+        await query.answer()
+        _clear_deposit_state(context)
+        await query.edit_message_text("<b>\u274c Deposit Process Cancelled.</b>", parse_mode="HTML")
+        return
 
 async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = context.user_data.get("deposit_step")
@@ -578,9 +598,7 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("\u26a0\ufe0f Amount must be > 0.")
             return True
         context.user_data["deposit_amount"] = amount
-        context.user_data["deposit_step"] = "await_trxid"
-        pretty = "bKash" if method == "bkash" else "Rocket"
-        await update.message.reply_text(f"Amount: {amount} BDT via {pretty}\nNow send Transaction ID (TrxID):")
+        await update.message.reply_text(f"<b>\u2705 Amount saved:</b> <b>{amount} BDT</b>\nClick <b>\u2705 Paid</b> to continue.", parse_mode="HTML")
         return True
 
     if step == "await_trxid":
@@ -588,10 +606,16 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         if len(trx) < 4:
             await update.message.reply_text("\u26a0\ufe0f TrxID too short. Please send valid TrxID.")
             return True
-        amount = context.user_data.get("deposit_amount")
-        pretty = "bKash" if method == "bkash" else "Rocket"
-        username = user.username or ""
-        # --- AUTO-VERIFY via SMS webhook ---
+        # Gateway-specific check before claiming
+        pending = db.get_pending_deposit_by_trx(trx)
+        if not pending or pending.get("status") != "UNCLAIMED":
+            await update.message.reply_text("\u26a0\ufe0f Transaction ID not found or already used. Please check your TrxID and try again.")
+            return True
+        selected_gateway = "bKash" if (context.user_data.get("deposit_method") == "bkash") else "Rocket"
+        actual_gateway = pending.get("gateway", "")
+        if actual_gateway.lower() != selected_gateway.lower():
+            await update.message.reply_text(f"<b>\u26a0\ufe0f Gateway mismatch! This TrxID belongs to {actual_gateway}, but you selected {selected_gateway}.</b>", parse_mode="HTML")
+            return True
         claimed = db.claim_pending_deposit(trx, user.id)
         if claimed:
             amt = float(claimed["amount"])
@@ -599,13 +623,11 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data.pop("deposit_amount", None)
             context.user_data.pop("deposit_step", None)
             new_bal = db.get_bdt_balance(user.id)
-            await update.message.reply_text(f"\u2705 Your deposit of {amt:.2f} BDT via {claimed['gateway']} (TrxID: {claimed['trx_id']}) has been verified!\n\U0001f4b0 Added {amt:.2f} BDT to your Main Balance. New balance: {new_bal:.2f} BDT")
+            await update.message.reply_text(
+                f"\u2705 Deposit Verified! Added {amt:.2f} BDT. New Balance: {new_bal:.2f} BDT",
+                parse_mode="HTML"
+            )
             return True
-        existing = db.get_pending_deposit_by_trx(trx)
-        if existing:
-            await update.message.reply_text("\u26a0\ufe0f Invalid or already used Transaction ID. Please check and try again.")
-            return True
-        # Not found -> error, do NOT create manual admin request
         await update.message.reply_text("\u26a0\ufe0f Transaction ID not found or already used. Please check your TrxID and try again.")
         return True
         # Manual admin fallback removed per spec - no deposit creation
