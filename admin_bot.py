@@ -457,6 +457,16 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
                     failed_details.append(f"{uid}: unsupported message type")
                     continue
                 sent += 1
+                # Rate-limit: max 20 messages/second (Telegram allows ~30 req/sec)
+                await asyncio.sleep(0.05)
+            except telegram.error.TelegramRetryAfter as e:
+                msg = f"{uid}: rate limited, sleeping {e.retry_after}s ({e})"
+                logger.warning("Broadcast: %s", msg)
+                failed_details.append(msg)
+                try:
+                    await asyncio.sleep(e.retry_after)
+                except Exception:
+                    pass
             except telegram.error.Forbidden as e:
                 msg = f"{uid}: blocked / not started User Bot ({e})"
                 logger.warning("Broadcast: %s", msg)
