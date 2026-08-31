@@ -22,7 +22,7 @@ PRODUCT_PRICE = float(os.environ.get("PRODUCT_PRICE", "1.5"))
 import json as _json
 _DEFAULT_CATALOG = {
     "\U0001f4e7Mail": [
-        {"name": "\U0001f4e7Fr Outlook - 1.50 BDT", "sheet": "Trusted Income Bot", "price": 1.5},
+        {"name": "\U0001f4e7Premium Outlook - 1.50 BDT", "sheet": "Trusted Income Bot", "price": 1.5},
     ],
 }
 try:
