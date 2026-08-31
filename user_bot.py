@@ -116,8 +116,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -- Get Pic ---------------------------------------------------
-# Fix future Get Pic: claim photo first, send, THEN deduct.
-# If send fails, refund the claim (unmark is_sent) — no credit lost.
+# Flow: claim photo → send → ONLY IF send succeeds → deduct credit + cooldown.
+# If send fails at any point, refund the claim (unmark is_sent) — no credit lost.
 # Cross-bot file_id (admin bot -> user bot) fails with BadRequest → fallback: download via Admin Bot and re-upload.
 
 async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -135,50 +135,40 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["getting_nid"] = True
 
     try:
-        # 2m30s cooldown after last successful Get Nid
+        # 1. Cooldown check
         remaining = db.get_cooldown_remaining(user_id)
         if remaining > 0:
             mins, secs = divmod(remaining, 60)
             await update.message.reply_text(f"\u23f3 Please wait {mins}m {secs}s before next Get Nid. Cooldown: 2m30s after each successful delivery.")
             return
 
+        # 2. Credit check
         credits = db.get_credits(user_id)
         if credits < 1:
             await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
             return
 
+        # 3. Claim a photo (marks photo as sent so no double-serve)
         photo_id, file_id = db.claim_photo_for_user(user_id)
         if photo_id is None:
             await update.message.reply_text("\U0001f614 No Nid's available right now. Please check back later.")
             return
 
-        # Deduct BEFORE sending so balance can be in caption
-        new_balance = db.confirm_photo_delivery(user_id)
-        if new_balance is None:
-            db.refund_photo_claim(photo_id)
-            await update.message.reply_text("\u274c Insufficient credit. Contact admin to top up.")
-            return
-
-        caption = f"\u2705 Here's your photo! 1 credit deducted. Remaining balance: {new_balance}"
-
+        # 4. Send the photo FIRST — credit is NOT deducted yet
         try:
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
         except Exception:
             pass
 
-        # Try direct file_id first (fast path for already-converted photos)
+        sent_successfully = False
+
+        # 4a. Try direct file_id (fast path for already-converted photos)
         try:
-            await update.message.reply_photo(photo=file_id, caption=caption)
-            db.set_last_nid(user_id)
-            # Send countdown notice
-            try:
-                await update.message.reply_text(f"\u23f3 Next Get Nid available in 2m 30s. Cooldown active.")
-            except Exception:
-                pass
-            return
+            await update.message.reply_photo(photo=file_id, caption="\u2705 Here's your photo!")
+            sent_successfully = True
         except telegram.error.BadRequest as e:
             logger.warning("Get Nid direct file_id failed photo %s: %s — fallback", photo_id, e)
-            # Fallback: download via whichever bot owns the file_id, then re-upload with caption
+            # Fallback: download via whichever bot owns the file_id, then re-upload
             bio = None
             for token in (ADMIN_BOT_TOKEN, USER_BOT_TOKEN):
                 try:
@@ -194,33 +184,36 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Fallback get_file with token %s... failed: %s", token[:10], fe)
                     continue
             if bio is None:
-                logger.error("Get Nid fallback get_file failed for photo %s", photo_id, exc_info=True)
-                db.refund_photo_and_credit(photo_id, user_id)
-                await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again — admin should re-add the photo.")
+                # Both bots can't access the file — photo is corrupted
+                db.refund_photo_claim(photo_id)
+                await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was not deducted. Please try again.")
                 return
+            sent_msg = await update.message.reply_photo(photo=bio, caption="\u2705 Here's your photo!")
+            sent_successfully = True
+            # Cache the working file_id for future direct sends
             try:
-                sent = await update.message.reply_photo(photo=bio, caption=caption)
-                try:
-                    if sent.photo:
-                        db.update_photo_file_id(photo_id, sent.photo[-1].file_id)
-                except Exception:
-                    pass
-                db.set_last_nid(user_id)
-                try:
-                    await update.message.reply_text(f"\u23f3 Next Get Nid available in 2m 30s. Cooldown active.")
-                except Exception:
-                    pass
-                return
-            except Exception as e2:
-                logger.error("Get Nid fallback send failed photo %s: %s", photo_id, e2, exc_info=True)
-                db.refund_photo_and_credit(photo_id, user_id)
-                await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again.")
-                return
+                if sent_msg.photo:
+                    db.update_photo_file_id(photo_id, sent_msg.photo[-1].file_id)
+            except Exception:
+                pass
         except Exception as e:
             logger.error("Get Nid send failed photo %s: %s", photo_id, e, exc_info=True)
-            db.refund_photo_and_credit(photo_id, user_id)
-            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was refunded. Please try again.")
+            db.refund_photo_claim(photo_id)
+            await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was not deducted. Please try again.")
             return
+
+        # 5. Photo delivered successfully — NOW deduct credit and record cooldown
+        new_balance = db.confirm_photo_delivery(user_id)
+        if new_balance is None:
+            # Extremely rare: credit went to 0 between the check and now
+            await update.message.reply_text("\u274c Credit deduction failed after delivery. Contact admin.")
+            return
+        db.set_last_nid(user_id)
+        try:
+            await update.message.reply_text(f"\u2705 1 credit deducted. Remaining balance: {new_balance}\n\u23f3 Next Get Nid available in 2m 30s.")
+        except Exception:
+            pass
+        return
     finally:
         context.user_data["getting_nid"] = False
 
