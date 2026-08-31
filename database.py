@@ -188,7 +188,12 @@ def add_credit(user_id: int, amount: int, admin_id: int) -> int:
 
 def deduct_credit(user_id: int, amount: int, admin_id: int) -> int:
     with get_conn() as conn:
-        conn.execute("UPDATE users SET credits = credits - ? WHERE user_id = ?", (amount, user_id))
+        cursor = conn.execute(
+            "UPDATE users SET credits = credits - ? WHERE user_id = ? AND credits >= ?",
+            (amount, user_id, amount),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Insufficient balance")
         conn.execute(
             "INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'deduct', ?, ?)",
             (user_id, amount, admin_id, _now()),

@@ -2,6 +2,7 @@ import os
 import re
 import logging
 from flask import Flask, request, jsonify
+import config
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,14 @@ def parse_sms(sender: str, body: str):
 @app.route("/api/sms-webhook", methods=["POST"])
 def sms_webhook():
     data = request.get_json(silent=True) or {}
+    # Require a valid secret (shared with the SMS forwarder).
+    provided = data.get("secret") or request.headers.get("X-Webhook-Secret") or ""
+    expected = config.WEBHOOK_SECRET
+    if not expected:
+        logger.error("WEBHOOK_SECRET is not configured - rejecting webhook.")
+        return jsonify({"error": "Webhook not configured"}), 500
+    if provided != expected:
+        return jsonify({"error": "Unauthorized"}), 401
     # Support multiple payload shapes from SMS forwarder apps
     sender = data.get("sender") or data.get("from") or data.get("address") or ""
     body = data.get("message") or data.get("body") or data.get("text") or ""

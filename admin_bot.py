@@ -304,7 +304,10 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         await notify_user_credit_change(uid, amount, "add", new_balance)
         await update.message.reply_text(f"\u2705 Added {amount} credits to user {uid}. New balance: {new_balance}")
     elif action == "awaiting_deductcredit":
-        new_balance = db.deduct_credit(uid, amount, admin_id)
+        try:
+            new_balance = db.deduct_credit(uid, amount, admin_id)
+        except ValueError:
+            return await update.message.reply_text(f"\u26a0\ufe0f Cannot deduct {amount} credits from user {uid}: insufficient balance.")
         from user_bot import notify_user_credit_change
         await notify_user_credit_change(uid, amount, "deduct", new_balance)
         await update.message.reply_text(f"\u2705 Deducted {amount} credits from user {uid}. New balance: {new_balance}")
@@ -366,7 +369,10 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             page = int(parts[2]) if len(parts) > 2 else 0
         except Exception:
             page = 0
-        new_balance = db.deduct_credit(uid, amount, admin_id)
+        try:
+            new_balance = db.deduct_credit(uid, amount, admin_id)
+        except ValueError:
+            return await update.message.reply_text(f"\u26a0\ufe0f Cannot deduct {amount} credits from user {uid}: insufficient balance.")
         from user_bot import notify_user_credit_change
         await notify_user_credit_change(uid, amount, "deduct", new_balance)
         await update.message.reply_text(f"\u2705 Deducted {amount} credits from user {uid}. New balance: {new_balance}")

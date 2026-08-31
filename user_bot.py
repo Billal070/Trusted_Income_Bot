@@ -729,6 +729,15 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         if actual.lower() != selected.lower():
             await update.message.reply_text(f"<b>\u26a0\ufe0f Gateway mismatch! This TrxID belongs to {actual}, but you selected {selected}.</b>", parse_mode="HTML")
             return True
+        expected_amount = context.user_data.get("deposit_amount")
+        actual_amount = pending.get("amount")
+        if expected_amount is None or actual_amount is None or float(expected_amount) != float(actual_amount):
+            await update.message.reply_text(
+                f"<b>\u26a0\ufe0f Amount mismatch! The SMS for this TrxID shows {float(actual_amount) if actual_amount is not None else 'N/A'} BDT, "
+                f"but you entered {float(expected_amount) if expected_amount is not None else 'N/A'} BDT. Please check the SMS amount and try again.</b>",
+                parse_mode="HTML",
+            )
+            return True
         claimed = db.claim_pending_deposit(trx, user.id)
         if claimed:
             amt = float(claimed["amount"])
