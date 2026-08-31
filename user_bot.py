@@ -470,13 +470,21 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = context.user_data.get("pending_order")
         if not order:
             return await query.edit_message_text("\u26a0\ufe0f No pending order. Please start again via \U0001f6cd\ufe0f Products.")
-        await query.edit_message_text("\u23f3 Processing order...")
+        proc_msg = await query.edit_message_text("\U0001f4dd Processing order...")
+
+        async def _del_proc():
+            try:
+                await proc_msg.delete()
+            except Exception:
+                pass
+
         # Re-validate balance and stock then deduct + allocate
         user = update.effective_user
         qty = order["qty"]; price = order["price"]; total = order["total"]; sheet = order["sheet"]; prod_name = order["name"]
         bal = db.get_bdt_balance(user.id)
         if bal < total - 1e-9:
             _clear_pending_order(context)
+            await _del_proc()
             return await query.message.reply_text(f"\u26a0\ufe0f Insufficient BDT Balance! Please deposit first. Required: {total} BDT, Balance: {bal} BDT")
         try:
             import sheets
@@ -484,13 +492,16 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error("Sheets count failed %s: %s", sheet, e, exc_info=True)
             _clear_pending_order(context)
+            await _del_proc()
             return await query.message.reply_text("\u26a0\ufe0f Stock check failed. Try later.")
         if avail < qty:
             _clear_pending_order(context)
+            await _del_proc()
             return await query.message.reply_text(f"\u26a0\ufe0f Low Stock! Only {avail} items left for {prod_name}.")
         new_bal = db.deduct_bdt_for_purchase(user.id, total)
         if new_bal is None:
             _clear_pending_order(context)
+            await _del_proc()
             return await query.message.reply_text(f"\u26a0\ufe0f Insufficient BDT Balance! Required: {total} BDT")
         username = user.username or str(user.id)
         try:
@@ -499,11 +510,13 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError as ve:
             db.refund_bdt_purchase(user.id, total)
             _clear_pending_order(context)
+            await _del_proc()
             return await query.message.reply_text(f"\u26a0\ufe0f {ve}")
         except Exception as e:
             db.refund_bdt_purchase(user.id, total)
             logger.error("Sheets allocate failed %s: %s", sheet, e, exc_info=True)
             _clear_pending_order(context)
+            await _del_proc()
             return await query.message.reply_text("\u26a0\ufe0f Allocation failed. Refunded.")
         # Excel
         import tempfile, os
@@ -536,6 +549,7 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_document(chat_id=update.effective_chat.id, document=open(tmp_path, "rb"), filename=fname)
             try: os.remove(tmp_path)
             except: pass
+            await _del_proc()
             # --- SEND NOTIFICATION TO LOG GROUP ---
             log_group_id = os.getenv("LOG_GROUP_ID")
             if log_group_id:
@@ -554,6 +568,7 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _clear_pending_order(context)
         except Exception as e:
             logger.error("Excel/send failed: %s", e, exc_info=True)
+            await _del_proc()
             await query.message.reply_text("\u26a0\ufe0f Allocated but file failed. Contact support.")
             _clear_pending_order(context)
         return
