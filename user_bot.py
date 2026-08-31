@@ -471,7 +471,6 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not order:
             return await query.edit_message_text("\u26a0\ufe0f No pending order. Please start again via \U0001f6cd\ufe0f Products.")
         await query.edit_message_text("\u23f3 Processing order...")
-        processing_msg = query.message
         # Re-validate balance and stock then deduct + allocate
         user = update.effective_user
         qty = order["qty"]; price = order["price"]; total = order["total"]; sheet = order["sheet"]; prod_name = order["name"]
@@ -537,11 +536,6 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_document(chat_id=update.effective_chat.id, document=open(tmp_path, "rb"), filename=fname)
             try: os.remove(tmp_path)
             except: pass
-            # Remove the "Processing order..." message since the order is complete
-            try:
-                await processing_msg.delete()
-            except Exception:
-                pass
             # --- SEND NOTIFICATION TO LOG GROUP ---
             log_group_id = os.getenv("LOG_GROUP_ID")
             if log_group_id:
