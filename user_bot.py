@@ -674,7 +674,7 @@ async def deposit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<b>\U0001f4cd Submit Transaction Key</b>\n\n"
             f"<b>Target Amount: {amt:.2f} BDT via {meta['name']}</b>\n\n"
             f"<b>Enter your SMS Transaction ID below:</b>\n"
-            f"<i>(Example format: 9A8B7C6D5E)</i>"
+            f"<i>(e.g. 9A8B7C6D5E)</i>"
         )
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("\u274c Cancel", callback_data="dep_cancel")]
@@ -740,8 +740,16 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         if claimed:
             amt = float(claimed["amount"])
             new_bal = db.get_bdt_balance(user.id)
+            gateway_name = "bKash" if claimed.get("gateway", "").lower() == "bkash" else "Rocket"
+            trx_id = claimed.get("trx_id", trx)
             await update.message.reply_text(
-                f"<b>\U0001f389 Payment Confirmed! Added {amt:.2f} BDT to your balance.\nCurrent Balance: {new_bal:.2f} BDT</b>",
+                f"<b>\U0001f389 Deposit Confirmed!</b>\n"
+                f"<b>\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501</b>\n"
+                f"<b>\U0001f4b5 Amount: {amt:.2f} BDT</b>\n"
+                f"<b>\U0001f4b3 Method: {gateway_name}</b>\n"
+                f"<b>\U0001f511 TrxID: {trx_id}</b>\n"
+                f"<b>\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501</b>\n"
+                f"<b>\U0001f4b0 New Balance: {new_bal:.2f} BDT</b>",
                 parse_mode="HTML"
             )
             _clear_deposit_state(context)
