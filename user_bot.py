@@ -210,7 +210,7 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         db.set_last_nid(user_id)
         try:
-            await update.message.reply_text(f"\u2705 1 credit deducted. Remaining balance: {new_balance}\n\u23f3 Next Nid available in 2m 30s.")
+            await update.message.reply_text(f"\u2705 Here's your photo! 1 credit deducted.\nRemaining balance: {new_balance}")
         except Exception:
             pass
         return
