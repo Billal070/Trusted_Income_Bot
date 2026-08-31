@@ -72,7 +72,7 @@ def _maintenance_guard(handler):
 # -- Keyboard --------------------------------------------------
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
-        [KeyboardButton("\U0001f6cd\ufe0f Buy Products")],
+        [KeyboardButton("\U0001f6cd\ufe0f Buy Products"), KeyboardButton("\U0001f5bc\ufe0f Get Nid")],
         [KeyboardButton("\U0001f4b3 Deposit"), KeyboardButton("\U0001f4e5 Submit Job")],
         [KeyboardButton("\U0001f464 Profile"), KeyboardButton("\U0001f4de Support")],
     ],
@@ -782,6 +782,7 @@ def build_user_bot() -> Application:
     app.add_handler(CommandHandler("start", _maintenance_guard(start)))
     app.add_handler(CommandHandler("cancel", _maintenance_guard(cancel)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Buy Products$"), _maintenance_guard(products)))
+    app.add_handler(MessageHandler(filters.Regex("^\U0001f5bc\ufe0f Get Nid$"), _maintenance_guard(get_pic)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3 Deposit$"), _maintenance_guard(deposit_entry)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4e5 Submit Job$"), _maintenance_guard(submit_job)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f464 Profile$"), _maintenance_guard(profile)))
