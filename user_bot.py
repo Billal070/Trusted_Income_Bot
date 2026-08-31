@@ -164,7 +164,7 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 4a. Try direct file_id (fast path for already-converted photos)
         try:
-            await update.message.reply_photo(photo=file_id, caption="\u2705 Here's your Nid!")
+            await update.message.reply_photo(photo=file_id, caption="\u2705 Here's your photo!")
             sent_successfully = True
         except telegram.error.BadRequest as e:
             logger.warning("Get Nid direct file_id failed photo %s: %s — fallback", photo_id, e)
@@ -188,7 +188,7 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.refund_photo_claim(photo_id)
                 await update.message.reply_text("\u26a0\ufe0f Photo delivery failed. Your credit was not deducted. Please try again.")
                 return
-            sent_msg = await update.message.reply_photo(photo=bio, caption="\u2705 Here's your Nid!")
+            sent_msg = await update.message.reply_photo(photo=bio, caption="\u2705 Here's your photo!")
             sent_successfully = True
             # Cache the working file_id for future direct sends
             try:
@@ -210,7 +210,7 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         db.set_last_nid(user_id)
         try:
-            await update.message.reply_text(f"\u2705 Here's your photo! 1 credit deducted.\nRemaining balance: {new_balance}")
+            await update.message.reply_text(f"\u2705 1 credit deducted. Remaining balance: {new_balance}\n\u23f3 Next Nid available in 2m 30s.")
         except Exception:
             pass
         return
