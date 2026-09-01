@@ -417,13 +417,15 @@ def add_bdt_balance(user_id: int, amount: int, admin_id: int) -> int:
         return int(row["bdt_balance"] or 0) if row else amount
 
 def remove_bdt_balance(user_id: int, amount: int, admin_id: int) -> int:
+    """Atomically deduct BDT; raises ValueError if balance would go below 0."""
     with get_conn() as conn:
-        # Prevent negative
-        cur = conn.execute("SELECT bdt_balance FROM users WHERE user_id=?", (user_id,)).fetchone()
-        cur_bal = int(cur["bdt_balance"] or 0) if cur else 0
-        deduct = min(cur_bal, amount)
-        conn.execute("UPDATE users SET bdt_balance = COALESCE(bdt_balance,0)-? WHERE user_id=?", (deduct, user_id))
-        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'bdt_deduct', ?, ?)", (user_id, deduct, admin_id, _now()))
+        cursor = conn.execute(
+            "UPDATE users SET bdt_balance = COALESCE(bdt_balance,0) - ? WHERE user_id = ? AND COALESCE(bdt_balance,0) >= ?",
+            (amount, user_id, amount),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError("Insufficient BDT balance")
+        conn.execute("INSERT INTO credit_logs (user_id, amount, action, admin_id, timestamp) VALUES (?, ?, 'bdt_deduct', ?, ?)", (user_id, amount, admin_id, _now()))
         row = conn.execute("SELECT bdt_balance FROM users WHERE user_id=?", (user_id,)).fetchone()
         return int(row["bdt_balance"] or 0) if row else 0
 

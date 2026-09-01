@@ -257,6 +257,46 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["admin_state"] = f"awaiting_mdeduct:{uid}:{page_s}"
         return await query.edit_message_text(f"Enter amount to DEDUCT from user {uid}:")
 
+    # --- Manage Balance sub-menu callbacks ---
+    if data.startswith("mbal:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s); page = int(page_s)
+        except Exception:
+            return
+        return await query.edit_message_text(
+            _manage_balance_text(uid),
+            reply_markup=_manage_balance_keyboard(uid, page),
+            parse_mode="HTML",
+        )
+    if data.startswith("mbdtadd:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s); page = int(page_s)
+        except Exception:
+            return
+        context.user_data["admin_state"] = f"awaiting_mbdtadd:{uid}:{page}"
+        return await query.edit_message_text(f"Enter BDT amount to ADD to user {uid}:")
+    if data.startswith("mbdtdeduct:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s); page = int(page_s)
+        except Exception:
+            return
+        context.user_data["admin_state"] = f"awaiting_mbdtdeduct:{uid}:{page}"
+        return await query.edit_message_text(f"Enter BDT amount to DEDUCT from user {uid}:")
+    if data.startswith("mbalback:"):
+        await query.answer()
+        try:
+            _, uid_s, page_s = data.split(":")
+            uid = int(uid_s); page = int(page_s)
+        except Exception:
+            return
+        return await show_user_detail(query, uid, page)
+
     # --- Existing Search-User callbacks ---
     await query.answer()
     parts = data.split(":")
@@ -289,14 +329,23 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     text = update.message.text.strip()
-    if not text.isdigit():
-        return await update.message.reply_text("\u26a0\ufe0f Please enter a valid number.")
-
-    amount = int(text)
     parts = state.split(":")
     action = parts[0]
     uid = int(parts[1])
     admin_id = update.effective_user.id
+
+    # BDT states accept decimals; credit states require positive integers.
+    if action in ("awaiting_mbdtadd", "awaiting_mbdtdeduct"):
+        try:
+            amount = float(text)
+            if amount <= 0:
+                raise ValueError
+        except Exception:
+            return await update.message.reply_text("\u26a0\ufe0f Please enter a valid positive number.")
+    else:
+        if not text.isdigit():
+            return await update.message.reply_text("\u26a0\ufe0f Please enter a valid number.")
+        amount = int(text)
 
     if action == "awaiting_addcredit":
         new_balance = db.add_credit(uid, amount, admin_id)
@@ -307,117 +356,50 @@ async def handle_credit_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         try:
             new_balance = db.deduct_credit(uid, amount, admin_id)
         except ValueError:
+            context.user_data["admin_state"] = None
             return await update.message.reply_text(f"\u26a0\ufe0f Cannot deduct {amount} credits from user {uid}: insufficient balance.")
         from user_bot import notify_user_credit_change
         await notify_user_credit_change(uid, amount, "deduct", new_balance)
         await update.message.reply_text(f"\u2705 Deducted {amount} credits from user {uid}. New balance: {new_balance}")
-    elif action == "awaiting_madd":
-        # parts = ["awaiting_madd", uid, page]
+
+    elif action in ("awaiting_madd", "awaiting_mdeduct", "awaiting_mbdtadd", "awaiting_mbdtdeduct"):
+        # parts = [state, uid, page]
         try:
             page = int(parts[2]) if len(parts) > 2 else 0
         except Exception:
             page = 0
-        new_balance = db.add_credit(uid, amount, admin_id)
-        from user_bot import notify_user_credit_change
-        await notify_user_credit_change(uid, amount, "add", new_balance)
-        await update.message.reply_text(f"\u2705 Added {amount} credits to user {uid}. New balance: {new_balance}")
-        # show updated detail view
-        u = db.get_user(uid)
-        if u:
-            sub_count = db.get_submission_count(uid)
-            summary = db.get_credit_summary(uid)
-            bdt = db.get_bdt_balance(uid)
-            status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
-            target_user_id = u["user_id"]
-            target_username = u["username"] or "N/A"
-            target_name = u["first_name"] or "N/A"
-            user_balance = float(db.get_bdt_balance(target_user_id) or 0)
-            user_credits = int(db.get_user(target_user_id)["credits"] or 0)
-            status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
-            total_submissions = db.get_submission_count(target_user_id)
-            total_spent = db.get_user_spent(target_user_id)
-            lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
-            total_credit_added = db.get_user_total_credit_added(target_user_id)
-            join_date = u["joined_at"] or "N/A"
-            join_date_str = str(join_date).split("T")[0]
-            text = (
-                f"\U0001f464 <b>User Details</b>\n"
-                f"<b>ID:</b> <code>{target_user_id}</code>\n"
-                f"<b>Username:</b> @{target_username}\n"
-                f"<b>Name:</b> {target_name}\n"
-                f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
-                f"\U0001fa99 <b>Credit Balance:</b> <b>{user_credits}</b>\n"
-                f"<b>Status:</b> {status_emoji}\n"
-                f"<b>----------------------</b>\n"
-                f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
-                f"\U0001f6cd\ufe0f <b>Spent:</b> <b>{total_spent:.2f} BDT</b>\n"
-                f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
-                f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
-                f"<b>----------------------</b>\n"
-                f"\U0001f4c5 <b>Joined:</b> {join_date_str}"
-            )
-            ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:{page}"),
-                 InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:{page}")],
-                [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
-                [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
-            ])
-            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
-    elif action == "awaiting_mdeduct":
-        try:
-            page = int(parts[2]) if len(parts) > 2 else 0
-        except Exception:
-            page = 0
-        try:
-            new_balance = db.deduct_credit(uid, amount, admin_id)
-        except ValueError:
-            return await update.message.reply_text(f"\u26a0\ufe0f Cannot deduct {amount} credits from user {uid}: insufficient balance.")
-        from user_bot import notify_user_credit_change
-        await notify_user_credit_change(uid, amount, "deduct", new_balance)
-        await update.message.reply_text(f"\u2705 Deducted {amount} credits from user {uid}. New balance: {new_balance}")
-        u = db.get_user(uid)
-        if u:
-            sub_count = db.get_submission_count(uid)
-            summary = db.get_credit_summary(uid)
-            bdt = db.get_bdt_balance(uid)
-            status = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
-            target_user_id = u["user_id"]
-            target_username = u["username"] or "N/A"
-            target_name = u["first_name"] or "N/A"
-            user_balance = float(db.get_bdt_balance(target_user_id) or 0)
-            user_credits = int(db.get_user(target_user_id)["credits"] or 0)
-            status_emoji = "Banned \U0001f6ab" if u["is_banned"] else "Active \u2705"
-            total_submissions = db.get_submission_count(target_user_id)
-            total_spent = db.get_user_spent(target_user_id)
-            lifetime_deposits = db.get_user_lifetime_deposits(target_user_id)
-            total_credit_added = db.get_user_total_credit_added(target_user_id)
-            join_date = u["joined_at"] or "N/A"
-            join_date_str = str(join_date).split("T")[0]
-            text = (
-                f"\U0001f464 <b>User Details</b>\n"
-                f"<b>ID:</b> <code>{target_user_id}</code>\n"
-                f"<b>Username:</b> @{target_username}\n"
-                f"<b>Name:</b> {target_name}\n"
-                f"\U0001f45b <b>Main Balance:</b> <b>{user_balance:.2f} BDT</b>\n"
-                f"\U0001fa99 <b>Credit Balance:</b> <b>{user_credits}</b>\n"
-                f"<b>Status:</b> {status_emoji}\n"
-                f"<b>----------------------</b>\n"
-                f"\U0001f4dd <b>Total Submissions:</b> <b>{total_submissions}</b>\n"
-                f"\U0001f6cd\ufe0f <b>Spent:</b> <b>{total_spent:.2f} BDT</b>\n"
-                f"\U0001f4b3 <b>Lifetime deposits:</b> <b>{lifetime_deposits:.2f} BDT</b>\n"
-                f"\U0001f4b0 <b>Total Credit Added:</b> <b>{total_credit_added:.2f} BDT</b>\n"
-                f"<b>----------------------</b>\n"
-                f"\U0001f4c5 <b>Joined:</b> {join_date_str}"
-            )
-            ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:{page}"),
-                 InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:{page}")],
-                [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
-                [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
-            ])
-            await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
+        if action == "awaiting_madd":
+            new_balance = db.add_credit(uid, amount, admin_id)
+            from user_bot import notify_user_credit_change
+            await notify_user_credit_change(uid, amount, "add", new_balance)
+            await update.message.reply_text(f"\u2705 Added {amount} credits to user {uid}. New balance: {new_balance}")
+        elif action == "awaiting_mdeduct":
+            try:
+                new_balance = db.deduct_credit(uid, amount, admin_id)
+            except ValueError:
+                context.user_data["admin_state"] = None
+                return await update.message.reply_text(f"\u26a0\ufe0f Cannot deduct {amount} credits from user {uid}: insufficient balance.")
+            from user_bot import notify_user_credit_change
+            await notify_user_credit_change(uid, amount, "deduct", new_balance)
+            await update.message.reply_text(f"\u2705 Deducted {amount} credits from user {uid}. New balance: {new_balance}")
+        elif action == "awaiting_mbdtadd":
+            new_balance = db.add_bdt_balance(uid, amount, admin_id)
+            await _notify_bdt(uid, amount, "add", new_balance)
+            await update.message.reply_text(f"\u2705 Added {amount:.2f} BDT to user {uid}. New Main Balance: {new_balance} BDT")
+        elif action == "awaiting_mbdtdeduct":
+            try:
+                new_balance = db.remove_bdt_balance(uid, amount, admin_id)
+            except ValueError:
+                context.user_data["admin_state"] = None
+                return await update.message.reply_text(f"\u26a0\ufe0f Cannot deduct {amount:.2f} BDT from user {uid}: insufficient balance.")
+            await _notify_bdt(uid, amount, "deduct", new_balance)
+            await update.message.reply_text(f"\u2705 Deducted {amount:.2f} BDT from user {uid}. New Main Balance: {new_balance} BDT")
+        # Return to the Manage Balance sub-menu with updated stats
+        await update.message.reply_text(
+            _manage_balance_text(uid),
+            reply_markup=_manage_balance_keyboard(uid, page),
+            parse_mode="HTML",
+        )
 
     context.user_data["admin_state"] = None
 
@@ -627,10 +609,7 @@ def _user_detail_text(uid: int) -> tuple[str, InlineKeyboardMarkup]:
     # we encode originating page in callback so Back returns there; default 0
     # caller must build keyboard with correct page; this helper builds without page, so wrappers will override
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:0"),
-            InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:0"),
-        ],
+        [InlineKeyboardButton("\U0001f4b0 Manage Balance", callback_data=f"mbal:{uid}:0")],
         [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:0")],
         [InlineKeyboardButton("\u25c0 Back", callback_data="mlist:0")],
     ])
@@ -670,14 +649,53 @@ async def show_user_detail(query: CallbackQuery, uid: int, page: int):
     )
     ban_label = "\u2705 Unban" if u["is_banned"] else "\U0001f6ab Ban"
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:{page}"),
-            InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:{page}"),
-        ],
+        [InlineKeyboardButton("\U0001f4b0 Manage Balance", callback_data=f"mbal:{uid}:{page}")],
         [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:{page}")],
         [InlineKeyboardButton("\u25c0 Back", callback_data=f"mlist:{page}")],
     ])
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+def _manage_balance_text(uid: int) -> str:
+    u = db.get_user(uid)
+    if not u:
+        return "\u274c User not found."
+    credits = int(u["credits"] or 0)
+    bdt = float(db.get_bdt_balance(uid) or 0)
+    return (
+        f"\U0001f4b0 <b>Manage Balance</b>\n"
+        f"<b>User:</b> <code>{uid}</code>\n"
+        f"\U0001f45b <b>Main Balance:</b> <b>{bdt:.2f} BDT</b>\n"
+        f"\U0001fa99 <b>Credit Balance:</b> <b>{credits}</b>\n"
+        f"<b>----------------------</b>\n"
+        f"<b>Select an action:</b>"
+    )
+
+
+def _manage_balance_keyboard(uid: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("\u2795 Add Credit", callback_data=f"madd:{uid}:{page}"),
+            InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"mdeduct:{uid}:{page}"),
+        ],
+        [
+            InlineKeyboardButton("\U0001f4b5 Add BDT", callback_data=f"mbdtadd:{uid}:{page}"),
+            InlineKeyboardButton("\U0001f4b8 Deduct BDT", callback_data=f"mbdtdeduct:{uid}:{page}"),
+        ],
+        [InlineKeyboardButton("\U0001f519 Back to User Profile", callback_data=f"mbalback:{uid}:{page}")],
+    ])
+
+
+async def _notify_bdt(user_id: int, amount: float, action: str, new_balance):
+    if action == "add":
+        text = f"\u2705 {amount:.2f} BDT added to your Main Balance! New Main Balance: {new_balance} BDT"
+    else:
+        text = f"\u2796 {amount:.2f} BDT deducted from your Main Balance. New Main Balance: {new_balance} BDT"
+    try:
+        async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
+            await ubot.send_message(chat_id=user_id, text=text)
+    except Exception:
+        pass
 
 
 # -- Photo auto-add --------------------------------------------
