@@ -113,11 +113,9 @@ async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     uid = target_user_id
     ban_label = "\u2705 Unban" if user["is_banned"] else "\U0001f6ab Ban"
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("\u2795 Add Credit", callback_data=f"addcredit:{uid}"),
-            InlineKeyboardButton("\u2796 Deduct Credit", callback_data=f"deductcredit:{uid}"),
-        ],
-        [InlineKeyboardButton(ban_label, callback_data=f"toggleban:{uid}")],
+        [InlineKeyboardButton("\U0001f4b0 Manage Balance", callback_data=f"mbal:{uid}:0")],
+        [InlineKeyboardButton(ban_label, callback_data=f"mdetailban:{uid}:0")],
+        [InlineKeyboardButton("\u25c0 Back", callback_data="mlist:0")],
     ])
     await update.message.reply_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -934,7 +932,7 @@ async def catch_admin_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("catch_admin_input: state=%s, user=%d", state, update.effective_user.id)
     if state.startswith("awaiting_search"):
         await handle_search_input(update, context)
-    elif state.startswith("awaiting_addcredit") or state.startswith("awaiting_deductcredit") or state.startswith("awaiting_madd") or state.startswith("awaiting_mdeduct"):
+    elif state.startswith("awaiting_addcredit") or state.startswith("awaiting_deductcredit") or state.startswith("awaiting_madd") or state.startswith("awaiting_mdeduct") or state.startswith("awaiting_mbdtadd") or state.startswith("awaiting_mbdtdeduct"):
         await handle_credit_input(update, context)
     elif state == "awaiting_broadcast":
         await handle_broadcast_input(update, context)
