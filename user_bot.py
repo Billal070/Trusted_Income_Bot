@@ -437,12 +437,14 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         # Strip duplicate price from display name for quantity step: keep raw short name only
         raw_name = prod["name"]
+        # Derived short name: strip trailing price suffix (e.g. "- 1.50 BDT")
+        short_name = re.sub(r"\s*-\s*[\d.]+ BDT\s*$", "", raw_name).strip()
         # If name already contains price (e.g. "Premium Outlook - 1.50 BDT"), use it as-is for first line
         # Do NOT prepend extra emoji — keep exact short name per GLOBAL NAMING RULE
-        context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": raw_name, "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
+        context.user_data["selected_product"] = {"cat": cat, "idx": p_idx, "name": raw_name, "short_name": short_name, "sheet": prod.get("sheet") or prod.get("sheet_tab") or prod.get("sheet_name") or "Trusted Income Bot", "price": float(prod["price"])}
         context.user_data["awaiting_product_qty"] = True
         quantity_text = (
-            f"<b>\U0001f4e7 Premium Outlook</b>\n"
+            f"<b>{short_name}</b>\n"
             f"\U0001f4b0 <b>{prod['price']} BDT / Unit</b>\n\n"
             f"\U0001f522 <b>Enter Quantity:</b>"
         )
@@ -550,7 +552,7 @@ async def products_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     group_msg = (
                         f"🎉 <b>New Order Placed!</b>\n\n"
                         f"👤 <b>User:</b> @{update.effective_user.username or update.effective_user.first_name} [<code>{update.effective_user.id}</code>]\n"
-                        f"⚡️ <b>Product:</b> 📧 Premium Outlook\n"
+                        f"⚡️ <b>Product:</b> {short_name}\n"
                         f"🪡 <b>Quantity:</b> {qty}\n"
                         f"💰 <b>Total:</b> {total:.2f} BDT\n"
                         f"👛 <b>Remaining Bal:</b> {new_bal:.2f} BDT"
@@ -593,11 +595,11 @@ async def handle_product_quantity(update: Update, context: ContextTypes.DEFAULT_
     user = update.effective_user
     total = round(qty * float(sel["price"]), 2)
     bal = db.get_bdt_balance(user.id)
-    context.user_data["pending_order"] = {"name": sel["name"], "sheet": sel["sheet"], "price": float(sel["price"]), "qty": qty, "total": total}
+    context.user_data["pending_order"] = {"name": sel["name"], "short_name": sel.get("short_name", re.sub(r"\s*-\s*[\d.]+ BDT\s*$", "", sel["name"]).strip()), "sheet": sel["sheet"], "price": float(sel["price"]), "qty": qty, "total": total}
     # Fixed format: Order Summary + 1 standard line then details, using short_name
     summary = (
         f"\U0001f4e9 <b>Order Summary</b>\n\n"
-        f"\u26a1 <b>Product   : \U0001f4e7 Premium Outlook</b>\n"
+        f"\u26a1 <b>Product   : {context.user_data['pending_order']['short_name']}</b>\n"
         f"\U0001faa1 <b>Quantity  : {qty}</b>\n"
         f"\U0001f4b0 <b>Total     : {total:.2f} BDT</b>\n"
         f"\U0001f45b <b>Balance   : {bal:.2f} BDT</b>"

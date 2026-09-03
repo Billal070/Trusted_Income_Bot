@@ -23,6 +23,7 @@ import json as _json
 _DEFAULT_CATALOG = {
     "\U0001f4e7Mail": [
         {"name": "\U0001f4e7Premium Outlook - 1.50 BDT", "sheet": "Trusted Income Bot", "price": 1.5},
+        {"name": "\U0001f4e7Fr Outlook - 0.85 BDT", "sheet": "\U0001f4e7Fr Outlook", "price": 0.85},
     ],
 }
 try:
