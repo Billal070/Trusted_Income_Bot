@@ -26,12 +26,13 @@ def _get_worksheet(sheet_name: str | None = None):
         sh = client.open_by_key(GOOGLE_SHEET_ID)
     else:
         sh = client.open(GOOGLE_SHEET_NAME)
-    target = sheet_name or GOOGLE_SHEET_NAME
+    target = (sheet_name or GOOGLE_SHEET_NAME).strip()
+    # Open the tab matching the EXACT title. No silent fallback to another sheet.
     try:
-        ws = sh.worksheet(target)
-    except Exception:
-        ws = sh.sheet1
-    return ws
+        return sh.worksheet(target)
+    except Exception as e:
+        raise ValueError(f"Worksheet tab '{target}' not found in the spreadsheet. "
+                         f"Add a tab named exactly '{target}' (no emojis) and retry.") from e
 def _now_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 def count_available(sheet_name: str | None = None):
