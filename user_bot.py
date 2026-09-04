@@ -73,8 +73,8 @@ def _maintenance_guard(handler):
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [KeyboardButton("\U0001f6cd\ufe0f Buy Products"), KeyboardButton("\U0001f5bc\ufe0f Get Nid")],
-        [KeyboardButton("\U0001f4b3 Deposit"), KeyboardButton("\U0001f4e5 Submit Job")],
-        [KeyboardButton("\U0001f464 Profile"), KeyboardButton("\U0001f4de Support")],
+        [KeyboardButton("\U0001f4b3 Deposit"), KeyboardButton("\U0001f464 Profile")],
+        [KeyboardButton("\U0001f4de Support")],
     ],
     resize_keyboard=True,
 )
@@ -94,10 +94,9 @@ def _clear_product_state(context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("selected_product", None)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # clear all pending states: deposit, submission, nid lock, product
+    # clear all pending states: deposit, product, nid lock
     _clear_deposit_state(context)
     _clear_product_state(context)
-    context.user_data.pop("awaiting_submission", None)
     context.user_data.pop("getting_nid", None)
     await update.message.reply_text("\u274c Cancelled. Use buttons to start again.", reply_markup=MAIN_KEYBOARD)
 
@@ -108,7 +107,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.register_user(user.id, user.username, user.first_name)
     _clear_deposit_state(context)
     _clear_product_state(context)
-    context.user_data.pop("awaiting_submission", None)
     if db.is_banned(user.id):
         await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
         return
@@ -216,101 +214,6 @@ async def get_pic(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     finally:
         context.user_data["getting_nid"] = False
-
-
-# -- Submit Job ------------------------------------------------
-
-async def submit_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _clear_deposit_state(context)
-    _clear_product_state(context)
-    if db.is_banned(update.effective_user.id):
-        await update.message.reply_text("\U0001f6ab You are banned from using this bot.")
-        return
-    context.user_data["awaiting_submission"] = True
-    await update.message.reply_text(
-        "\U0001f4dd Please send your Job now.\n"
-        "Submit Job Like The Format Below \U0001f447\U0001f3fb\n"
-        "--------------------------------------------------------------\n"
-        "\U0001f587\ufe0fAccount Link:\n"
-        "\n"
-        "\n"
-        "\U0001f5102 Factor Code:\n"
-        "\n"
-        "\n"
-        "\u2709\ufe0fMail:"
-    )
-
-
-async def handle_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get("awaiting_submission"):
-        return
-    context.user_data["awaiting_submission"] = False
-
-    user = update.effective_user
-    message = update.message
-
-    if message.photo:
-        # Photo may have caption (user text with photo) — handle before text check
-        content_type = "photo"
-        content = message.photo[-1].file_id
-        user_caption = message.caption or None
-        await _relay_submission(user, content_type, content, user_caption)
-    elif message.document:
-        content_type = "document"
-        content = message.document.file_id
-        user_caption = message.caption or None
-        await _relay_submission(user, content_type, content, user_caption)
-    elif message.text:
-        content_type = "text"
-        content = message.text
-        await _relay_submission(user, content_type, content, None)
-    else:
-        await message.reply_text("\u26a0\ufe0f Unsupported type. Please send text, a photo, or a document.")
-        return
-
-    await message.reply_text("\u2705 Your task has been submitted successfully!")
-
-
-async def _relay_submission(user, content_type: str, content: str, user_caption: str | None = None):
-    db.add_submission(user.id, content_type, content, user_caption)
-
-    header = f"\U0001f4e5 New Job Submission\nFrom: @{user.username} (ID: {user.id})"
-    try:
-        async with telegram.Bot(token=ADMIN_BOT_TOKEN) as admin_bot:
-            if content_type == "photo":
-                full_caption = header + (f"\n\n{user_caption}" if user_caption else "")
-                try:
-                    await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=content, caption=full_caption)
-                except telegram.error.BadRequest:
-                    # cross-bot file_id: download via User Bot and re-upload via Admin Bot
-                    logger.warning("Relay photo cross-bot, downloading via User Bot")
-                    async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
-                        tg_file = await ubot.get_file(content)
-                        bio = io.BytesIO()
-                        await tg_file.download_to_memory(bio)
-                        bio.seek(0)
-                        bio.name = "submission.jpg"
-                        await admin_bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=bio, caption=full_caption)
-            elif content_type == "document":
-                full_caption = header + (f"\n\n{user_caption}" if user_caption else "")
-                try:
-                    await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=content, caption=full_caption)
-                except telegram.error.BadRequest:
-                    logger.warning("Relay document cross-bot, downloading via User Bot")
-                    async with telegram.Bot(token=USER_BOT_TOKEN) as ubot:
-                        tg_file = await ubot.get_file(content)
-                        bio = io.BytesIO()
-                        await tg_file.download_to_memory(bio)
-                        bio.seek(0)
-                        bio.name = "submission.file"
-                        await admin_bot.send_document(chat_id=ADMIN_CHAT_ID, document=bio, caption=full_caption)
-            else:
-                await admin_bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"{header}\n\n{content}")
-    except telegram.error.Forbidden:
-        logger.warning("Relay: Admin blocked bot or wrong ADMIN_CHAT_ID")
-    except Exception as e:
-        logger.warning("Relay submission failed: %s", e, exc_info=True)
-
 
 # -- Balance (Credits + BDT) ----------------------------------
 
@@ -627,7 +530,6 @@ async def deposit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     _clear_deposit_state(context)
     _clear_product_state(context)
-    context.user_data.pop("awaiting_submission", None)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("\U0001f4b8 bKash", callback_data="dep_method:bkash"),
          InlineKeyboardButton("\U0001f680 Rocket", callback_data="dep_method:rocket")],
@@ -763,19 +665,18 @@ async def handle_deposit_text(update: Update, context: ContextTypes.DEFAULT_TYPE
     return False
 
 
-# -- Catch-all for submissions + deposit + products -----------
+# -- Catch-all for deposit + products -------------------------
 
 async def catch_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_product_qty"):
         handled = await handle_product_quantity(update, context)
         if handled:
             return
-    # deposit flow has priority over submissions
+    # deposit flow has priority
     if context.user_data.get("deposit_step"):
         handled = await handle_deposit_text(update, context)
         if handled:
             return
-    await handle_submission(update, context)
 
 
 # -- Build application -----------------------------------------
@@ -788,13 +689,12 @@ def build_user_bot() -> Application:
     app.add_handler(MessageHandler(filters.Regex("^\U0001f6cd\ufe0f Buy Products$"), _maintenance_guard(products)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f5bc\ufe0f Get Nid$"), _maintenance_guard(get_pic)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4b3 Deposit$"), _maintenance_guard(deposit_entry)))
-    app.add_handler(MessageHandler(filters.Regex("^\U0001f4e5 Submit Job$"), _maintenance_guard(submit_job)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f464 Profile$"), _maintenance_guard(profile)))
     app.add_handler(MessageHandler(filters.Regex("^\U0001f4de Support$"), _maintenance_guard(support)))
     app.add_handler(CallbackQueryHandler(_maintenance_guard(deposit_callback), pattern=r"^dep_"))
     app.add_handler(CallbackQueryHandler(_maintenance_guard(products_callback), pattern=r"^prod_"))
 
-    # Catch text/photo/document that arrive while awaiting a submission/deposit
+    # Catch text/photo/document that arrive while awaiting a deposit/product quantity
     app.add_handler(MessageHandler(
         (filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND,
         _maintenance_guard(catch_submission),

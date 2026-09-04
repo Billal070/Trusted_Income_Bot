@@ -428,17 +428,34 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
     message = update.message
     logger.info("Broadcast started: %d users to send to", total)
 
+    # NOTE: we intentionally do NOT set parse_mode, so Bangla text, special
+    # unicode characters and emojis are sent as raw text without being mangled
+    # by HTML/Markdown parsers. Captions likewise carry plain text.
+    caption = message.caption or ""
+
     async with telegram.Bot(token=USER_BOT_TOKEN) as bot:
         for uid in user_ids:
             try:
                 if message.text:
                     await bot.send_message(chat_id=uid, text=message.text)
                 elif message.photo:
-                    await bot.send_photo(chat_id=uid, photo=message.photo[-1].file_id, caption=message.caption or "")
+                    await bot.send_photo(chat_id=uid, photo=message.photo[-1].file_id, caption=caption)
+                elif message.video:
+                    await bot.send_video(chat_id=uid, video=message.video.file_id, caption=caption)
                 elif message.document:
-                    await bot.send_document(chat_id=uid, document=message.document.file_id, caption=message.caption or "")
-                elif message.caption:
-                    await bot.send_message(chat_id=uid, text=message.caption)
+                    await bot.send_document(chat_id=uid, document=message.document.file_id, caption=caption)
+                elif message.audio:
+                    await bot.send_audio(chat_id=uid, audio=message.audio.file_id, caption=caption)
+                elif message.voice:
+                    await bot.send_voice(chat_id=uid, voice=message.voice.file_id, caption=caption)
+                elif message.sticker:
+                    await bot.send_sticker(chat_id=uid, sticker=message.sticker.file_id)
+                elif message.animation:
+                    await bot.send_animation(chat_id=uid, animation=message.animation.file_id, caption=caption)
+                elif message.video_note:
+                    await bot.send_video_note(chat_id=uid, video_note=message.video_note.file_id)
+                elif caption:
+                    await bot.send_message(chat_id=uid, text=caption)
                 else:
                     failed_details.append(f"{uid}: unsupported message type")
                     continue
@@ -446,7 +463,7 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
                 # Rate-limit: max 20 messages/second (Telegram allows ~30 req/sec)
                 await asyncio.sleep(0.05)
             except telegram.error.TelegramRetryAfter as e:
-                msg = f"{uid}: rate limited, sleeping {e.retry_after}s ({e})"
+                msg = f"{uid}: rate limited, sleeping {e.retry_after}s"
                 logger.warning("Broadcast: %s", msg)
                 failed_details.append(msg)
                 try:
@@ -454,12 +471,16 @@ async def handle_broadcast_input(update: Update, context: ContextTypes.DEFAULT_T
                 except Exception:
                     pass
             except telegram.error.Forbidden as e:
-                msg = f"{uid}: blocked / not started User Bot ({e})"
+                msg = f"{uid}: blocked / not started User Bot"
+                logger.warning("Broadcast: %s (%s)", msg, e)
+                failed_details.append(msg)
+            except telegram.error.TelegramError as e:
+                msg = f"{uid}: TelegramError: {type(e).__name__}"
                 logger.warning("Broadcast: %s", msg)
                 failed_details.append(msg)
             except Exception as e:
-                msg = f"{uid}: {type(e).__name__}: {e}"
-                logger.error("Broadcast failed for %s", msg, exc_info=True)
+                msg = f"{uid}: {type(e).__name__}"
+                logger.error("Broadcast failed for %s: %s", msg, e, exc_info=True)
                 failed_details.append(msg)
 
     result = f"\u2705 Broadcast sent to {sent}/{total} users."
